@@ -403,8 +403,9 @@ func initMainHandlers() {
 
 	// CALL a16 (0xCD)
 	mainHandler[0xCD] = func(c *Core) (int, error) {
+		addr := c.fetch16()
 		c.push16(c.PC)
-		c.PC = c.fetch16()
+		c.PC = addr
 		return 24, nil
 	}
 
@@ -574,11 +575,11 @@ func initMainHandlers() {
 	}
 	mainHandler[0xF3] = func(c *Core) (int, error) {
 		c.IME = false
-		c.IMEEnablePending = false
+		c.IMEScheduled = 0
 		return 4, nil
 	}
 	mainHandler[0xFB] = func(c *Core) (int, error) {
-		c.IMEEnablePending = true
+		c.IMEScheduled = 2
 		return 4, nil
 	}
 	mainHandler[0x10] = func(c *Core) (int, error) {
@@ -587,10 +588,14 @@ func initMainHandlers() {
 		return 4, nil
 	}
 
-	// PREFIX CB (0xCB) — placeholder, CB opcodes not yet implemented
+	// PREFIX CB (0xCB) — dispatch to cbHandler table
 	mainHandler[0xCB] = func(c *Core) (int, error) {
-		_ = c.fetch8() // consume CB opcode
-		return 4, nil
+		sub := c.fetch8()
+		h := cbHandler[sub]
+		if h == nil {
+			return 4, nil // undefined CB op → NOP
+		}
+		return h(c)
 	}
 
 	// Undefined opcodes remain nil — Step() treats them as NOP.

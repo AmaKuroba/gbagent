@@ -6,10 +6,10 @@ type Core struct {
 	AF, BC, DE, HL, SP, PC uint16
 
 	// Interrupt state
-	IME              bool // Interrupt Master Enable
-	IMEEnablePending bool // EI sets this, IME becomes active after next instruction
-	Halted           bool
-	Stopped          bool
+	IME          bool // Interrupt Master Enable
+	IMEScheduled int  // EI schedule: 2=just set, 1=enable after this instr, 0=active
+	Halted       bool
+	Stopped      bool
 
 	// Cycle counter
 	Cycles uint64
@@ -222,7 +222,7 @@ func (c *Core) Step() (int, error) {
 	}
 	if c.Halted {
 		c.Cycles += 4
-		if c.IME && (c.MMU.Read(0xFF0F)&c.MMU.Read(0xFFFF)) != 0 {
+		if (c.MMU.Read(0xFF0F)&c.MMU.Read(0xFFFF)) != 0 {
 			c.Halted = false
 		}
 		return 4, nil
@@ -239,10 +239,17 @@ func (c *Core) Step() (int, error) {
 	}
 	cycles, err := h(c)
 	c.Cycles += uint64(cycles)
-	if c.IMEEnablePending {
+
+	// Handle EI delay (after instruction execution, not during EI's own step)
+	// IMEScheduled=2 after EI, becomes 1 at end of EI's step,
+	// becomes 0 at end of next instruction, then IME becomes true.
+	if c.IMEScheduled == 2 {
+		c.IMEScheduled = 1
+	} else if c.IMEScheduled == 1 {
 		c.IME = true
-		c.IMEEnablePending = false
+		c.IMEScheduled = 0
 	}
+
 	return cycles, err
 }
 
@@ -266,7 +273,7 @@ func (c *Core) serveInterrupt() bool {
 	case t&0x10 != 0: vector = 0x0060; bit = 0x10
 	}
 	c.IME = false
-	c.IMEEnablePending = false
+	c.IMEScheduled = 0
 	c.push16(c.PC)
 	c.PC = vector
 	c.MMU.Write(0xFF0F, req & ^bit)
@@ -278,7 +285,7 @@ func (c *Core) serveInterrupt() bool {
 func (c *Core) Reset() {
 	c.AF = 0x01B0; c.BC = 0x0013; c.DE = 0x00D8
 	c.HL = 0x014D; c.SP = 0xFFFE; c.PC = 0x0100
-	c.IME = false; c.IMEEnablePending = false
+	c.IME = false; c.IMEScheduled = 0
 	c.Halted = false; c.Stopped = false; c.Cycles = 0
 }
 
