@@ -1,5 +1,9 @@
 package dashboard
 
+import (
+	"sync"
+)
+
 // Message represents a message sent to/from a WebSocket client.
 type Message struct {
 	Type int
@@ -14,6 +18,7 @@ type Client struct {
 
 // Hub manages connected clients and broadcasts messages to them.
 type Hub struct {
+	mu         sync.RWMutex
 	clients    map[*Client]bool
 	register   chan *Client
 	unregister chan *Client
@@ -34,12 +39,16 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case client := <-h.register:
+			h.mu.Lock()
 			h.clients[client] = true
+			h.mu.Unlock()
 		case client := <-h.unregister:
+			h.mu.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
 				close(client.send)
 			}
+			h.mu.Unlock()
 		}
 	}
 }
@@ -47,9 +56,11 @@ func (h *Hub) Run() {
 // BroadcastBinary sends binary data to all connected clients.
 // Drops messages for clients with a full send buffer.
 func (h *Hub) BroadcastBinary(data []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 	for client := range h.clients {
 		select {
-		case client.send <- Message{Type: 1, Data: data}:
+		case client.send <- Message{Type: 2, Data: data}:
 		default:
 			// Client buffer full; skip.
 		}
@@ -59,9 +70,11 @@ func (h *Hub) BroadcastBinary(data []byte) {
 // BroadcastText sends text data to all connected clients.
 // Drops messages for clients with a full send buffer.
 func (h *Hub) BroadcastText(data []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
 	for client := range h.clients {
 		select {
-		case client.send <- Message{Type: 2, Data: data}:
+		case client.send <- Message{Type: 1, Data: data}:
 		default:
 			// Client buffer full; skip.
 		}

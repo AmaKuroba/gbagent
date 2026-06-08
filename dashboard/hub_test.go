@@ -26,7 +26,7 @@ func TestHubBroadcast(t *testing.T) {
 
 	select {
 	case msg := <-client.send:
-		assert.Equal(t, 1, msg.Type, "should be binary message type")
+		assert.Equal(t, 2, msg.Type, "should be binary message type")
 		assert.Equal(t, frame, msg.Data, "should receive the broadcast frame")
 	case <-time.After(time.Second):
 		t.Fatal("client did not receive message within timeout")
@@ -61,7 +61,7 @@ func TestHubMultipleClients(t *testing.T) {
 	for i, client := range clients {
 		select {
 		case msg := <-client.send:
-			assert.Equal(t, 2, msg.Type, "should be text message type")
+			assert.Equal(t, 1, msg.Type, "should be text message type")
 			assert.Equal(t, state, msg.Data, "client %d should receive state", i)
 		case <-time.After(time.Second):
 			t.Fatalf("client %d did not receive message within timeout", i)

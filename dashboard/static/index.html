@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>gbagent — Game Boy Dashboard</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --surface: #16213e;
+    --surface2: #0f3460;
+    --accent: #e94560;
+    --text: #eaeaea;
+    --muted: #8892b0;
+    --green: #53d769;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem;
+  }
+  h1 {
+    font-size: 1.5rem;
+    margin-bottom: 0.25rem;
+    letter-spacing: 0.1em;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-bottom: 2rem;
+  }
+  .dashboard {
+    display: flex;
+    gap: 2rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: flex-start;
+  }
+  .screen-wrapper {
+    background: var(--surface);
+    border: 2px solid var(--surface2);
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 0 30px rgba(233,69,96,0.15);
+  }
+  #gb-screen {
+    display: block;
+    width: 480px;
+    height: 432px;
+    image-rendering: pixelated;
+    background: #222;
+    border-radius: 4px;
+  }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--surface2);
+    border-radius: 12px;
+    padding: 1.25rem;
+    min-width: 240px;
+    max-width: 320px;
+  }
+  .panel h2 {
+    font-size: 0.9rem;
+    color: var(--accent);
+    margin-bottom: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .panel-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.3rem 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 0.8rem;
+  }
+  .panel-row .label { color: var(--muted); }
+  .panel-row .value { color: var(--text); }
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .status-dot.connected { background: var(--green); }
+  .status-dot.disconnected { background: var(--accent); }
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(3, 48px);
+    gap: 4px;
+    margin-top: 1rem;
+    justify-content: center;
+  }
+  .controls .key {
+    background: var(--surface2);
+    border-radius: 6px;
+    text-align: center;
+    padding: 8px 0;
+    font-size: 0.7rem;
+    color: var(--muted);
+    user-select: none;
+  }
+  .controls .key.active { background: var(--accent); color: white; }
+  .controls .key.empty { visibility: hidden; }
+  .fps { color: var(--muted); font-size: 0.75rem; margin-top: 0.5rem; text-align: center; }
+  .log {
+    margin-top: 1rem;
+    background: rgba(0,0,0,0.3);
+    border-radius: 6px;
+    padding: 0.5rem;
+    max-height: 120px;
+    overflow-y: auto;
+    font-size: 0.7rem;
+    color: var(--muted);
+  }
+  .log p { margin: 0.15rem 0; }
+  .log p.error { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>gbagent</h1>
+<p class="subtitle">Game Boy Emulator — Live Dashboard</p>
+
+<div class="dashboard">
+  <div class="screen-wrapper">
+    <canvas id="gb-screen" width="480" height="432"></canvas>
+    <div class="fps" id="fps">waiting for connection…</div>
+  </div>
+
+  <div class="panel">
+    <h2><span class="status-dot disconnected" id="status-dot"></span> <span id="status-text">Disconnected</span></h2>
+    <div id="state-panel">
+      <div class="panel-row"><span class="label">PC</span><span class="value" id="pc">—</span></div>
+      <div class="panel-row"><span class="label">AF</span><span class="value" id="af">—</span></div>
+      <div class="panel-row"><span class="label">BC</span><span class="value" id="bc">—</span></div>
+      <div class="panel-row"><span class="label">DE</span><span class="value" id="de">—</span></div>
+      <div class="panel-row"><span class="label">HL</span><span class="value" id="hl">—</span></div>
+      <div class="panel-row"><span class="label">SP</span><span class="value" id="sp">—</span></div>
+      <div class="panel-row"><span class="label">IME</span><span class="value" id="ime">—</span></div>
+      <div class="panel-row"><span class="label">Frame</span><span class="value" id="frame">—</span></div>
+    </div>
+
+    <div class="controls">
+      <div class="key empty"></div>
+      <div class="key" data-gb="UP">↑</div>
+      <div class="key empty"></div>
+      <div class="key" data-gb="LEFT">←</div>
+      <div class="key" data-gb="SELECT">SEL</div>
+      <div class="key" data-gb="RIGHT">→</div>
+      <div class="key empty"></div>
+      <div class="key" data-gb="START">STR</div>
+      <div class="key empty"></div>
+      <div class="key" data-gb="A">A</div>
+      <div class="key" data-gb="B">B</div>
+      <div class="key empty"></div>
+    </div>
+
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('gb-screen');
+const ctx = canvas.getContext('2d');
+const logEl = document.getElementById('log');
+
+let ws = null;
+let connected = false;
+const KEY_MAP = {
+  'ArrowUp':    'UP',
+  'ArrowDown':  'DOWN',
+  'ArrowLeft':  'LEFT',
+  'ArrowRight': 'RIGHT',
+  'z':  'A',
+  'x':  'B',
+  'Enter': 'START',
+  'Shift': 'SELECT',
+};
+
+function log(msg, cls) {
+  const p = document.createElement('p');
+  if (cls) p.className = cls;
+  p.textContent = '> ' + msg;
+  logEl.appendChild(p);
+  logEl.scrollTop = logEl.scrollHeight;
+  if (logEl.children.length > 50) logEl.removeChild(logEl.firstChild);
+}
+
+function connect() {
+  if (ws) ws.close();
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+  ws.onopen = () => {
+    connected = true;
+    document.getElementById('status-dot').className = 'status-dot connected';
+    document.getElementById('status-text').textContent = 'Connected';
+    log('WebSocket connected');
+  };
+
+  ws.onclose = () => {
+    connected = false;
+    document.getElementById('status-dot').className = 'status-dot disconnected';
+    document.getElementById('status-text').textContent = 'Disconnected';
+    log('WebSocket disconnected — reconnecting in 2s', 'error');
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => {
+    log('WebSocket error', 'error');
+  };
+
+  // Binary messages = PNG frames
+  ws.binaryType = 'arraybuffer';
+  ws.onmessage = (event) => {
+    if (event.data instanceof ArrayBuffer) {
+      // Binary frame — render as PNG on canvas
+      const blob = new Blob([event.data], { type: 'image/png' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        // Draw scaled to canvas size
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    } else {
+      // Text message = game state JSON
+      try {
+        const state = JSON.parse(event.data);
+        document.getElementById('pc').textContent = '0x' + (state.pc || 0).toString(16).toUpperCase().padStart(4, '0');
+        document.getElementById('af').textContent = '0x' + (state.af || 0).toString(16).toUpperCase().padStart(4, '0');
+        document.getElementById('bc').textContent = '0x' + (state.bc || 0).toString(16).toUpperCase().padStart(4, '0');
+        document.getElementById('de').textContent = '0x' + (state.de || 0).toString(16).toUpperCase().padStart(4, '0');
+        document.getElementById('hl').textContent = '0x' + (state.hl || 0).toString(16).toUpperCase().padStart(4, '0');
+        document.getElementById('sp').textContent = '0x' + (state.sp || 0).toString(16).toUpperCase().padStart(4, '0');
+        document.getElementById('ime').textContent = state.ime ? 'ON' : 'OFF';
+        document.getElementById('frame').textContent = state.frame != null ? state.frame : '—';
+        document.getElementById('fps').textContent = 'Frame ' + (state.frame || '—');
+      } catch(e) {
+        // Not JSON — might be a log message
+        log(event.data);
+      }
+    }
+  };
+}
+
+// Keyboard input
+document.addEventListener('keydown', (e) => {
+  if (e.repeat) return;
+  const gbBtn = KEY_MAP[e.key];
+  if (gbBtn) {
+    e.preventDefault();
+    document.querySelector(`[data-gb="${gbBtn}"]`)?.classList.add('active');
+    if (connected && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ key: e.key }));
+    }
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  const gbBtn = KEY_MAP[e.key];
+  if (gbBtn) {
+    e.preventDefault();
+    document.querySelector(`[data-gb="${gbBtn}"]`)?.classList.remove('active');
+  }
+});
+
+// Touch/click support for on-screen controls
+document.querySelectorAll('[data-gb]').forEach(el => {
+  const gbBtn = el.dataset.gb;
+  const keyName = { 'UP': 'ArrowUp', 'DOWN': 'ArrowDown', 'LEFT': 'ArrowLeft', 'RIGHT': 'ArrowRight',
+                    'A': 'z', 'B': 'x', 'START': 'Enter', 'SELECT': 'Shift' }[gbBtn] || gbBtn;
+
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    el.classList.add('active');
+    if (connected && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ key: keyName }));
+    }
+  });
+  el.addEventListener('pointerup', (e) => {
+    e.preventDefault();
+    el.classList.remove('active');
+  });
+  el.addEventListener('pointerleave', (e) => {
+    e.preventDefault();
+    el.classList.remove('active');
+  });
+});
+
+log('gbagent dashboard loaded');
+connect();
+</script>
+</body>
+</html>
