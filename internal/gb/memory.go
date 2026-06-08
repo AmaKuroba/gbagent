@@ -17,6 +17,10 @@ type MemoryBus struct {
 
 	// PPU reference for register routing
 	ppu *PPUCore
+
+	// Boot ROM data and state
+	bootROM        [256]byte
+	bootROMEnabled bool
 }
 
 // NewMMU creates a new MemoryBus with the given cartridge.
@@ -35,6 +39,10 @@ func (m *MemoryBus) SetPPU(ppu *PPUCore) {
 func (m *MemoryBus) Read(addr uint16) byte {
 	switch {
 	case addr <= 0x7FFF:
+		// Boot ROM overrides cartridge ROM at 0x0000-0x00FF when enabled
+		if addr <= 0x00FF && m.bootROMEnabled {
+			return m.bootROM[addr]
+		}
 		// ROM area
 		if m.Cartridge != nil {
 			return m.Cartridge.Read(addr)
@@ -95,6 +103,10 @@ func (m *MemoryBus) Write(addr uint16, val byte) {
 	case addr >= 0xFEA0 && addr <= 0xFEFF:
 		// Unusable area, ignored
 	case addr >= 0xFF00 && addr <= 0xFF7F:
+		// 0xFF50 is the BOOT register — writing bit 0 disables boot ROM
+		if addr == 0xFF50 && val&0x01 != 0 {
+			m.bootROMEnabled = false
+		}
 		// LCD registers (0xFF40-0xFF4B) are routed to the PPU
 		if addr >= 0xFF40 && addr <= 0xFF4B && m.ppu != nil {
 			m.ppu.WriteRegister(addr, val)
@@ -142,15 +154,20 @@ func (m *MemoryBus) Write16(addr uint16, val uint16) {
 // LoadROM loads cartridge ROM data.
 func (m *MemoryBus) LoadROM(data []byte) {
 	if m.Cartridge == nil {
-		// If no cartridge was provided, create a ROM-only one
-		m.Cartridge = &romOnlyCartridge{data: data}
+		// If no cartridge was provided, create one based on the header
+		m.Cartridge = NewCartridge(data)
 		return
 	}
 	// Otherwise the cartridge handles it
 }
 
-// LoadBootROM loads boot ROM data (not yet implemented).
+// LoadBootROM loads boot ROM data and enables boot ROM mapping at 0x0000-0x00FF.
 func (m *MemoryBus) LoadBootROM(data []byte) {
+	if len(data) > 256 {
+		data = data[:256]
+	}
+	copy(m.bootROM[:], data)
+	m.bootROMEnabled = true
 }
 
 // romOnlyCartridge is a minimal cartridge that maps ROM at 0x0000-0x7FFF.
