@@ -10,6 +10,7 @@ type Core struct {
 	IMEScheduled int  // EI schedule: 2=just set, 1=enable after this instr, 0=active
 	Halted       bool
 	Stopped      bool
+	HaltBug      bool // HALT bug: prevent PC increment on next opcode fetch
 
 	// Cycle counter
 	Cycles uint64
@@ -232,6 +233,31 @@ func (c *Core) Step() (int, error) {
 		return 4, nil
 	}
 	opcode := c.fetch8()
+	// HALT bug: the instruction after HALT is executed a second time
+	// because the opcode fetch's PC increment was suppressed.
+	// Execute the handler now but restore PC so the next Step()
+	// re-fetches the same opcode.
+	if c.HaltBug {
+		c.HaltBug = false
+		c.PC-- // undo fetch8 increment
+		savedPC := c.PC
+		h := mainHandler[opcode]
+		if h == nil {
+			c.Cycles += 4
+			return 4, nil
+		}
+		cycles, err := h(c)
+		c.PC = savedPC // restore so next fetch re-reads same opcode
+		c.Cycles += uint64(cycles)
+
+		if c.IMEScheduled == 2 {
+			c.IMEScheduled = 1
+		} else if c.IMEScheduled == 1 {
+			c.IME = true
+			c.IMEScheduled = 0
+		}
+		return cycles, err
+	}
 	h := mainHandler[opcode]
 	if h == nil {
 		c.Cycles += 4
@@ -286,7 +312,7 @@ func (c *Core) Reset() {
 	c.AF = 0x01B0; c.BC = 0x0013; c.DE = 0x00D8
 	c.HL = 0x014D; c.SP = 0xFFFE; c.PC = 0x0100
 	c.IME = false; c.IMEScheduled = 0
-	c.Halted = false; c.Stopped = false; c.Cycles = 0
+	c.Halted = false; c.Stopped = false; c.HaltBug = false; c.Cycles = 0
 }
 
 func (c *Core) GetState() CPUState {

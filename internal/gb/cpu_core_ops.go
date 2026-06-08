@@ -34,7 +34,10 @@ func initMainHandlers() {
 		c.Halted = true
 		if !c.IME && (c.MMU.Read(0xFF0F)&c.MMU.Read(0xFFFF)) != 0 {
 			c.Halted = false
-			c.PC++ // HALT bug: skip next byte
+			// HALT bug: when IME=0 and an interrupt is pending, the next
+			// opcode fetch does not increment PC, causing the instruction
+			// immediately after HALT to be fetched and executed twice.
+			c.HaltBug = true
 		}
 		return 4, nil
 	}
