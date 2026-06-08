@@ -1,16 +1,25 @@
 # Binaries
 /gbagent
+/gb.test
 *.exe
-
-# Build
-/tmp/
-/dist/
+*.test
+*.out
 
 # IDE
 .idea/
 .vscode/
 *.swp
+*.swo
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Test binaries
+internal/**/*.test
+cmd/**/*.test
+dashboard/**/*.test
+mcp/**/*.test
+
+# Archive
+internal/_archive_gb/
