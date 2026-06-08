@@ -48,7 +48,7 @@ func TestPPUModeSequence_OAMtoVRAMtoHBlank(t *testing.T) {
 	// At dot 252 (80+172), it enters HBlank (mode 0).
 	// After 456 dots, LY increments.
 
-	ppu := NewPPU()
+	ppu := NewPPU(nil)
 	ppu.Reset()
 
 	// Initially at start of frame, LY=0, we should be in OAM search.
@@ -77,7 +77,7 @@ func TestPPUModeSequence_AllLines(t *testing.T) {
 	t.Parallel()
 
 	// Verify every visible scanline follows OAM→VRAM→HBlank.
-	ppu := NewPPU()
+	ppu := NewPPU(nil)
 	ppu.Reset()
 
 	for ly := 0; ly < VisibleScanlines; ly++ {
@@ -106,7 +106,7 @@ func TestPPUModeSequence_AllLines(t *testing.T) {
 func TestPPUVBlankDuration(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU()
+	ppu := NewPPU(nil)
 	ppu.Reset()
 
 	// Run through 144 visible scanlines.
@@ -137,7 +137,7 @@ func TestPPUVBlankExactCycleCount(t *testing.T) {
 	t.Parallel()
 
 	// VBlank should be exactly 4560 dots (10 scanlines * 456).
-	ppu := NewPPU()
+	ppu := NewPPU(nil)
 	ppu.Reset()
 
 	// Advance through all visible lines.
@@ -162,7 +162,7 @@ func TestPPUVBlankExactCycleCount(t *testing.T) {
 func TestPPULYIncrement(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU()
+	ppu := NewPPU(nil)
 	ppu.Reset()
 
 	for expectedLY := 0; expectedLY < TotalScanlines; expectedLY++ {
@@ -183,7 +183,7 @@ func TestPPULYIncrement_PartialSteps(t *testing.T) {
 
 	// LY must increment correctly even when Step is called with
 	// partial scanline amounts.
-	ppu := NewPPU()
+	ppu := NewPPU(nil)
 	ppu.Reset()
 
 	// Step 100 cycles at a time and verify LY.
@@ -212,7 +212,7 @@ func TestPPULYIncrement_PartialSteps(t *testing.T) {
 func TestPPULYEqualsLYC_Coincidence(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU()
+	ppu := NewPPU(nil)
 	ppu.Reset()
 
 	// Test with LYC=5.
@@ -229,7 +229,7 @@ func TestPPULYEqualsLYC_Coincidence(t *testing.T) {
 func TestPPULYEqualsLYC_NoCoincidence(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU()
+	ppu := NewPPU(nil)
 	ppu.Reset()
 
 	// Default LYC=0, LY starts at 0 — so LY==LYC initially.
@@ -243,7 +243,7 @@ func TestPPULYEqualsLYC_NoCoincidence(t *testing.T) {
 func TestPPULYEqualsLYC_DifferentLYC(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU()
+	ppu := NewPPU(nil)
 	ppu.Reset()
 
 	ppu.SetLYC(10)
@@ -261,7 +261,7 @@ func TestPPULYEqualsLYC_DifferentLYC(t *testing.T) {
 func TestPPUFrameDuration(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU()
+	ppu := NewPPU(nil)
 	ppu.Reset()
 
 	// Step exactly FrameCycles and verify we're back at the start.
@@ -274,7 +274,7 @@ func TestPPUFrameDuration(t *testing.T) {
 func TestPPUFrameDuration_ExactBoundary(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU()
+	ppu := NewPPU(nil)
 	ppu.Reset()
 
 	// FrameCycles-1 should still be on the last scanline.
@@ -293,7 +293,7 @@ func TestPPUFrameDuration_ExactBoundary(t *testing.T) {
 func TestPPUReset(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU()
+	ppu := NewPPU(nil)
 	ppu.Reset()
 
 	// Advance a bit.
@@ -311,7 +311,7 @@ func TestPPUGetScreen(t *testing.T) {
 	t.Parallel()
 
 	// Verify GetScreen returns a 160x144 buffer.
-	ppu := NewPPU()
+	ppu := NewPPU(nil)
 	ppu.Reset()
 
 	screen := ppu.GetScreen()
