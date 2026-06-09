@@ -104,6 +104,10 @@ type PPUCore struct {
 	// Sprite / OAM state (per scanline)
 	oamScanned bool
 	oamSprites []spriteEntry
+
+	// firstFrameBlank is set when LCD is enabled (LCDC bit 7 rising edge).
+	// While set, the screen remains blank (all white) for one full frame.
+	firstFrameBlank bool
 }
 
 var _ PPU = (*PPUCore)(nil)
@@ -139,7 +143,12 @@ func (p *PPUCore) Reset() {
 }
 
 func (p *PPUCore) Step(cycles int) {
-	if !p.isRunning || cycles <= 0 {
+	// When LCD is disabled (LCDC bit 7 = 0), LY must be 0 and must not increment.
+	if p.lcdc&lcdcBitLCDEnable == 0 {
+		p.ly = 0
+		return
+	}
+	if cycles <= 0 {
 		return
 	}
 	for cycles > 0 {
@@ -167,10 +176,17 @@ func (p *PPUCore) Step(cycles int) {
 		crossedVRAM := prevDot < p.mode3End && p.dotCounter > p.mode2End
 		if p.ly < visibleScanlines && !p.scanlineRendered && crossedVRAM {
 			if p.mmu != nil {
-				p.renderBackgroundScanline()
-				p.renderWindowScanline()
-				if p.lcdc&lcdcBitOBJEnable != 0 {
-					p.renderSprites()
+				if p.firstFrameBlank {
+					// First frame after LCD enable — render blank (all white).
+					for x := 0; x < 160; x++ {
+						p.screen[x][p.ly] = 0
+					}
+				} else {
+					p.renderBackgroundScanline()
+					p.renderWindowScanline()
+					if p.lcdc&lcdcBitOBJEnable != 0 {
+						p.renderSprites()
+					}
 				}
 			}
 			p.scanlineRendered = true
@@ -189,13 +205,23 @@ func (p *PPUCore) advanceScanline() {
 	if p.ly >= totalScanlines {
 		p.ly = 0
 		p.frameCtr++
+		// End first-frame blank period after one complete frame.
+		p.firstFrameBlank = false
 	}
 	p.mode2End = oamSearchCycles
 	p.mode3End = oamSearchCycles + vramDrawCycles
 	p.updateMode()
+
+	// VBlank interrupt: always fires when entering VBlank (LY becomes 144).
+	if p.ly == 144 && p.mmu != nil {
+		p.mmu.WriteIF(p.mmu.ReadIF() | 0x01)
+	}
 }
 
 func (p *PPUCore) updateMode() int {
+	oldMode := p.stat & 0x03
+	oldLYCoinc := p.stat&statBitLYCoinc != 0
+
 	var mode int
 	if p.ly < visibleScanlines {
 		if p.dotCounter < p.mode2End {
@@ -210,11 +236,41 @@ func (p *PPUCore) updateMode() int {
 	}
 	p.stat &^= 0x03
 	p.stat |= byte(mode) & 0x03
-	if p.ly == p.lyc {
+
+	newLYCoinc := p.ly == p.lyc
+	if newLYCoinc {
 		p.stat |= statBitLYCoinc
 	} else {
 		p.stat &^= statBitLYCoinc
 	}
+
+	// Trigger STAT interrupt (IF bit 1) on LYC=LY rising edge.
+	if !oldLYCoinc && newLYCoinc && p.stat&statBitIntLYC != 0 {
+		if p.mmu != nil {
+			p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
+		}
+	}
+
+	// Trigger STAT interrupt on mode transitions (except VRAM mode entry, which
+	// does not generate a STAT interrupt on DMG).
+	newMode := byte(mode)
+	if oldMode != newMode {
+		switch mode {
+		case ppuModeHBlank:
+			if p.stat&statBitIntMode0 != 0 && p.mmu != nil {
+				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
+			}
+		case ppuModeVBlank:
+			if p.stat&statBitIntMode1 != 0 && p.mmu != nil {
+				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
+			}
+		case ppuModeOAM:
+			if p.stat&statBitIntMode2 != 0 && p.mmu != nil {
+				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
+			}
+		}
+	}
+
 	return mode
 }
 
@@ -281,6 +337,11 @@ func (p *PPUCore) windowTileMapBase() uint16 {
 }
 
 func (p *PPUCore) renderWindowScanline() {
+	// When LCDC bit 0 (BG/Window enable) is 0, both BG and Window are disabled
+	// regardless of bit 5 (Window enable).
+	if p.lcdc&lcdcBitBGEnable == 0 {
+		return
+	}
 	if p.lcdc&lcdcBitWinEnable == 0 {
 		return
 	}
@@ -321,8 +382,12 @@ func (p *PPUCore) scanOAM() {
 	ly := int(p.ly)
 	for i := 0; i < 40 && len(p.oamSprites) < 10; i++ {
 		base := uint16(0xFE00 + i*4)
-		y := p.mmu.Read(base)
-		x := p.mmu.Read(base + 1)
+		// Use ReadOAMDirect to bypass MMU mode checking — the PPU's own OAM
+		// scan reads must not trigger the OAM corruption/bug (which only
+		// applies to CPU-initiated accesses during mode 2).
+		mmu := p.mmu.(*MemoryBus)
+		y := mmu.ReadOAMDirect(base)
+		x := mmu.ReadOAMDirect(base + 1)
 
 		spriteY := int(y) - 16
 
@@ -330,8 +395,8 @@ func (p *PPUCore) scanOAM() {
 			p.oamSprites = append(p.oamSprites, spriteEntry{
 				x:     x,
 				y:     y,
-				tile:  p.mmu.Read(base + 2),
-				attrs: p.mmu.Read(base + 3),
+				tile:  mmu.ReadOAMDirect(base + 2),
+				attrs: mmu.ReadOAMDirect(base + 3),
 			})
 		}
 	}
@@ -422,8 +487,24 @@ func (p *PPUCore) renderSprites() {
 	}
 }
 
+// GetMode returns the current PPU mode (0-3) as defined by the ppuMode* constants.
+// This is extracted from the STAT register bits 0-1 for direct use by the MMU
+// to enforce OAM/VRAM access blocking.
+func (p *PPUCore) GetMode() int {
+	return int(p.stat & 0x03)
+}
+
+// GetOAMRow returns the OAM row index (0-19) that the PPU is currently
+// scanning during mode 2 (OAM search). During mode 2, the PPU reads one
+// OAM row every M-cycle (4 T-cycles). Row 0 covers objects 0-1 at
+// 0xFE00-0xFE07; row 19 covers objects 38-39 at 0xFE98-0xFE9F.
+// Only meaningful during ppuModeOAM; returns a stale value otherwise.
+func (p *PPUCore) GetOAMRow() int {
+	return p.dotCounter / 4
+}
+
 func (p *PPUCore) GetState() PPUState {
-	mode := int(p.stat & 0x03)
+	mode := p.GetMode()
 	return PPUState{
 		Mode:       mode,
 		LY:         p.ly,
@@ -474,16 +555,46 @@ func (p *PPUCore) ReadRegister(addr uint16) byte {
 func (p *PPUCore) WriteRegister(addr uint16, val byte) {
 	switch addr {
 	case 0xFF40:
+		oldEnable := (p.lcdc & lcdcBitLCDEnable) != 0
+		newEnable := (val & lcdcBitLCDEnable) != 0
 		p.lcdc = val
-		p.isRunning = (val & lcdcBitLCDEnable) != 0
+		p.isRunning = newEnable
 		if !p.isRunning {
 			p.ly = 0
 			p.dotCounter = 0
 			p.stat &^= 0x03
 			p.scanlineRendered = false
+			p.firstFrameBlank = false
+		} else if !oldEnable && newEnable {
+			// LCD just turned on — first frame must be blank.
+			p.firstFrameBlank = true
+			// Clear screen to white (palette index 0).
+			for x := 0; x < 160; x++ {
+				for y := 0; y < 144; y++ {
+					p.screen[x][y] = 0
+				}
+			}
 		}
 	case 0xFF41:
 		p.stat = (p.stat & 0x07) | (val & 0x78)
+		// Writing to STAT can immediately trigger a STAT interrupt if the newly
+		// enabled interrupt conditions match the current PPU state (LY==LYC for
+		// bit 6, or the current mode matches the mode-specific enable bits 3-5).
+		// This is documented DMG/LR35902 behavior.
+		if p.mmu != nil {
+			if p.stat&statBitIntLYC != 0 && p.ly == p.lyc {
+				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
+			}
+			if p.stat&statBitIntMode2 != 0 && p.GetMode() == ppuModeOAM {
+				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
+			}
+			if p.stat&statBitIntMode1 != 0 && p.GetMode() == ppuModeVBlank {
+				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
+			}
+			if p.stat&statBitIntMode0 != 0 && p.GetMode() == ppuModeHBlank {
+				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
+			}
+		}
 	case 0xFF42:
 		p.scy = val
 	case 0xFF43:

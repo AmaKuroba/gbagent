@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"log"
 	"net/http"
@@ -19,15 +20,17 @@ type Server struct {
 	addr  string
 	mux   *http.ServeMux
 	input chan string
+	joypad *Joypad
 }
 
 // NewServer creates a new dashboard server with the given hub and listen address.
 func NewServer(hub *Hub, addr string) *Server {
 	s := &Server{
-		hub:   hub,
-		addr:  addr,
-		mux:   http.NewServeMux(),
-		input: make(chan string, 256),
+		hub:    hub,
+		addr:   addr,
+		mux:    http.NewServeMux(),
+		input:  make(chan string, 256),
+		joypad: &Joypad{},
 	}
 	s.routes()
 	return s
@@ -36,6 +39,11 @@ func NewServer(hub *Hub, addr string) *Server {
 // Handler returns the HTTP handler (used for testing with httptest).
 func (s *Server) Handler() http.Handler {
 	return s.mux
+}
+
+// Joypad returns the server's joypad state tracker.
+func (s *Server) Joypad() *Joypad {
+	return s.joypad
 }
 
 // routes sets up HTTP routes for the dashboard.
@@ -63,8 +71,15 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
+// inputMessage is the JSON structure sent by the frontend for keyboard events.
+type inputMessage struct {
+	Key     string `json:"key"`
+	Pressed *bool  `json:"pressed,omitempty"`
+}
+
 // handleWS upgrades an HTTP connection to WebSocket and bridges
 // the Hub's broadcast channel with the WebSocket connection.
+// It also parses incoming keyboard input to update the joypad state.
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -92,9 +107,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Read pump: reads messages from the WebSocket connection (keyboard input)
-	// and forwards them to the server's input channel. Unregisters the client
-	// when the connection drops.
+	// Read pump: reads messages from the WebSocket connection (keyboard input),
+	// updates joypad state, and forwards raw messages to the input channel.
+	// Unregisters the client when the connection drops.
 	defer func() {
 		s.hub.unregister <- client
 	}()
@@ -103,10 +118,24 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			break
 		}
+
+		// Forward raw input to the channel.
 		select {
 		case s.input <- string(message):
 		default:
 			// Input buffer full; drop.
+		}
+
+		// Parse keyboard input and update joypad state.
+		var msg inputMessage
+		if err := json.Unmarshal(message, &msg); err == nil && msg.Key != "" {
+			if bits, ok := keyToButton[msg.Key]; ok {
+				if msg.Pressed != nil && !*msg.Pressed {
+					s.joypad.Release(bits)
+				} else {
+					s.joypad.Press(bits)
+				}
+			}
 		}
 	}
 }

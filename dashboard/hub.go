@@ -22,6 +22,8 @@ type Hub struct {
 	clients    map[*Client]bool
 	register   chan *Client
 	unregister chan *Client
+	stop       chan struct{}
+	stopped    chan struct{}
 }
 
 // NewHub creates and returns a new Hub.
@@ -30,12 +32,15 @@ func NewHub() *Hub {
 		clients:    make(map[*Client]bool),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
+		stop:       make(chan struct{}),
+		stopped:    make(chan struct{}),
 	}
 }
 
 // Run starts the hub's event loop, processing client registration and
-// unregistration. Must be called as a goroutine.
+// unregistration. Must be called as a goroutine. Exits when Stop is called.
 func (h *Hub) Run() {
+	defer close(h.stopped)
 	for {
 		select {
 		case client := <-h.register:
@@ -49,8 +54,23 @@ func (h *Hub) Run() {
 				close(client.send)
 			}
 			h.mu.Unlock()
+		case <-h.stop:
+			// Unregister all connected clients.
+			h.mu.Lock()
+			for client := range h.clients {
+				delete(h.clients, client)
+				close(client.send)
+			}
+			h.mu.Unlock()
+			return
 		}
 	}
+}
+
+// Stop signals the hub's Run loop to shut down and waits for it to finish.
+func (h *Hub) Stop() {
+	close(h.stop)
+	<-h.stopped
 }
 
 // BroadcastBinary sends binary data to all connected clients.

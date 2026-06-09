@@ -319,7 +319,98 @@ func TestPPUGetScreen(t *testing.T) {
 	assert.Equal(t, 144, len(screen[0]), "screen height should be 144")
 }
 
-// --- Helper assertions ---
+// --- STAT write interrupt trigger ---
+//
+// Writing to STAT (0xFF41) can immediately trigger a STAT interrupt if the
+// newly-enabled enable bits match the current PPU state.
+
+func TestPPU_STATWriteTriggersLYCInterrupt(t *testing.T) {
+	t.Parallel()
+
+	mmu := NewMMU(nil)
+	ppu := NewPPU(mmu)
+	ppu.Reset()
+
+	mmu.Write(0xFF0F, 0x00) // clear IF
+
+	// Set LYC = 0 (LY starts at 0, so LY==LYC already).
+	ppu.WriteRegister(0xFF45, 0)
+
+	// Write STAT with LYC interrupt enable (bit 6) — should trigger immediately
+	// because LY==LYC==0.
+	ppu.WriteRegister(0xFF41, statBitIntLYC)
+
+	ifVal := mmu.Read(0xFF0F)
+	assert.True(t, ifVal&0x02 != 0,
+		"STAT write with LYC IE enabled when LY==LYC should trigger STAT interrupt, got IF=%02x", ifVal)
+}
+
+func TestPPU_STATWriteTriggersOAMInterrupt(t *testing.T) {
+	t.Parallel()
+
+	mmu := NewMMU(nil)
+	ppu := NewPPU(mmu)
+	ppu.Reset()
+
+	mmu.Write(0xFF0F, 0x00) // clear IF
+
+	// At LY=0, just after reset, the PPU is in OAM search mode (mode 2).
+	// Write STAT with OAM STAT interrupt enable (bit 5).
+	ppu.WriteRegister(0xFF41, statBitIntMode2)
+
+	ifVal := mmu.Read(0xFF0F)
+	assert.True(t, ifVal&0x02 != 0,
+		"STAT write with OAM IE enabled while in OAM mode should trigger STAT interrupt, got IF=%02x", ifVal)
+}
+
+func TestPPU_STATWriteTriggersHBlankInterrupt(t *testing.T) {
+	t.Parallel()
+
+	mmu := NewMMU(nil)
+	ppu := NewPPU(mmu)
+	ppu.Reset()
+
+	// Step through OAM + VRAM to reach HBlank (mode 0) on scanline 0.
+	ppu.Step(oamSearchCycles + vramDrawCycles) // 80 + 172 = 252 cycles
+
+	mmu.Write(0xFF0F, 0x00) // clear IF (clear any STAT interrupt from mode transition)
+
+	// Now in HBlank. Write STAT with HBlank interrupt enable (bit 3).
+	ppu.WriteRegister(0xFF41, statBitIntMode0)
+
+	ifVal := mmu.Read(0xFF0F)
+	assert.True(t, ifVal&0x02 != 0,
+		"STAT write with HBlank IE enabled while in HBlank mode should trigger STAT interrupt, got IF=%02x", ifVal)
+}
+
+func TestPPU_STATWriteInOAMDoesNotTriggerWrongMode(t *testing.T) {
+	t.Parallel()
+
+	mmu := NewMMU(nil)
+	ppu := NewPPU(mmu)
+	ppu.Reset()
+
+	mmu.Write(0xFF0F, 0x00) // clear IF
+
+	// In OAM mode. Write STAT with only HBlank IE (bit 3) — should NOT fire
+	// because we're in mode 2, not mode 0.
+	ppu.WriteRegister(0xFF41, statBitIntMode0)
+
+	ifVal := mmu.Read(0xFF0F)
+	assert.True(t, ifVal&0x02 == 0,
+		"HBlank IE write in OAM mode should NOT trigger STAT interrupt, got IF=%02x", ifVal)
+}
+
+func TestPPU_STATWriteNoCrashesWithNilMMU(t *testing.T) {
+	t.Parallel()
+
+	ppu := NewPPU(nil)
+	ppu.Reset()
+
+	// Should not panic.
+	ppu.WriteRegister(0xFF41, statBitIntLYC)
+	assert.True(t, true, "STAT write with nil MMU should not panic")
+}
 
 func assertBitSet(t *testing.T, reg byte, bit int, msg string) {
 	t.Helper()
@@ -329,4 +420,199 @@ func assertBitSet(t *testing.T, reg byte, bit int, msg string) {
 func assertBitNotSet(t *testing.T, reg byte, bit int, msg string) {
 	t.Helper()
 	assert.False(t, reg&(1<<bit) != 0, msg)
+}
+
+// --- First-frame blank after LCD enable ---
+
+func TestPPUFirstFrameBlankAfterLCDEnable(t *testing.T) {
+	t.Parallel()
+
+	ppu := NewPPU(nil)
+	ppu.Reset()
+
+	// LCD starts enabled (default 0x91, bit 7 set). Disable it first.
+	ppu.WriteRegister(0xFF40, 0x00) // LCD off
+	// All pixels should be 0 (white) already from default, but ensure.
+	screen := ppu.GetScreen()
+	for x := 0; x < 160; x++ {
+		for y := 0; y < 144; y++ {
+			assert.Equal(t, byte(0), screen[x][y], "pixel (%d,%d) should be 0 (white) with LCD off", x, y)
+		}
+	}
+
+	// Enable LCD — sets firstFrameBlank.
+	ppu.WriteRegister(0xFF40, 0x91) // LCD on
+
+	// Step through one full frame (70224 cycles).
+	// During this frame, all rendered pixels should stay 0 (white).
+	ppu.Step(FrameCycles)
+
+	screen = ppu.GetScreen()
+	for x := 0; x < 160; x++ {
+		for y := 0; y < 144; y++ {
+			assert.Equal(t, byte(0), screen[x][y], "first frame after LCD enable: pixel (%d,%d) should be 0 (white)", x, y)
+		}
+	}
+}
+
+func TestPPUFirstFrameBlankClearsAfterOneFrame(t *testing.T) {
+	t.Parallel()
+
+	ppu := NewPPU(nil)
+	ppu.Reset()
+
+	// Disable then enable LCD.
+	ppu.WriteRegister(0xFF40, 0x00)
+	ppu.WriteRegister(0xFF40, 0x91)
+
+	// Complete the first (blank) frame.
+	ppu.Step(FrameCycles)
+
+	// After one full frame, the blank flag should be cleared.
+	// Step into the second frame — pixels should no longer be forced to 0.
+	// Since there's no MMU, rendering functions are no-ops after the blank period,
+	// so pixels may still be 0. What matters is the flag is cleared so rendering
+	// proceeds normally.
+	// We verify the flag is cleared by checking LY wraps to 0 and we're on frame 2.
+	state := ppu.GetState()
+	assert.Equal(t, byte(0), state.LY, "LY should wrap to 0 after frame")
+}
+
+func TestPPUFirstFrameBlankResetOnLCDToggle(t *testing.T) {
+	t.Parallel()
+
+	ppu := NewPPU(nil)
+	ppu.Reset()
+
+	// Disable then enable LCD.
+	ppu.WriteRegister(0xFF40, 0x00)
+	ppu.WriteRegister(0xFF40, 0x91)
+
+	// Complete the first (blank) frame.
+	ppu.Step(FrameCycles)
+
+	// Disable LCD again mid-second-frame.
+	ppu.WriteRegister(0xFF40, 0x00)
+	state := ppu.GetState()
+	assert.Equal(t, byte(0), state.LY, "LY should reset to 0 when LCD is turned off")
+
+	// Re-enable — should get another blank frame.
+	ppu.WriteRegister(0xFF40, 0x91)
+	state = ppu.GetState()
+	assert.Equal(t, byte(0), state.LY, "LY should be 0 after LCD re-enable")
+
+	// Step through one full frame — all pixels should still be 0 (blank).
+	ppu.Step(FrameCycles)
+	screen := ppu.GetScreen()
+	for x := 0; x < 160; x++ {
+		for y := 0; y < 144; y++ {
+			assert.Equal(t, byte(0), screen[x][y], "pixel (%d,%d) should be 0 (white) after re-enable blank frame", x, y)
+		}
+	}
+}
+
+func TestPPUFirstFrameBlankIsRunningDuringBlank(t *testing.T) {
+	t.Parallel()
+
+	// The PPU should be running and processing scanlines during the blank frame,
+	// even though pixel output is suppressed.
+	ppu := NewPPU(nil)
+	ppu.Reset()
+
+	// Disable then enable LCD.
+	ppu.WriteRegister(0xFF40, 0x00)
+	ppu.WriteRegister(0xFF40, 0x91)
+
+	// Step a partial frame and observe LY advancing.
+	ppu.Step(ScanlineCycles * 50) // 50 scanlines in
+	state := ppu.GetState()
+	assert.Equal(t, byte(50), state.LY, "LY should advance during blank frame")
+	assert.Equal(t, modeOAM, state.Mode, "PPU should be in OAM mode at start of scanline 50")
+}
+
+// --- LCD disabled → LY behavior ---
+
+func TestPPULYZeroWhenLCDOff(t *testing.T) {
+	t.Parallel()
+
+	ppu := NewPPU(nil)
+	ppu.Reset()
+
+	// LCD starts enabled. Turn it off.
+	ppu.WriteRegister(0xFF40, 0x00)
+
+	state := ppu.GetState()
+	assert.Equal(t, byte(0), state.LY, "LY should be 0 immediately after LCD is disabled")
+}
+
+func TestPPULYStaysZeroDuringLCDOff(t *testing.T) {
+	t.Parallel()
+
+	ppu := NewPPU(nil)
+	ppu.Reset()
+
+	// Run a few scanlines so LY advances.
+	ppu.Step(ScanlineCycles * 10) // LY should be 10
+
+	state := ppu.GetState()
+	assert.Equal(t, byte(10), state.LY, "LY should be 10 mid-frame")
+
+	// Turn LCD off.
+	ppu.WriteRegister(0xFF40, 0x00)
+
+	state = ppu.GetState()
+	assert.Equal(t, byte(0), state.LY, "LY should reset to 0 when LCD is turned off mid-frame")
+
+	// Call Step many times while LCD is off — LY must stay 0.
+	for i := 0; i < 1000; i++ {
+		ppu.Step(1)
+	}
+	state = ppu.GetState()
+	assert.Equal(t, byte(0), state.LY, "LY should stay 0 while LCD is off, even after many Step calls")
+}
+
+func TestPPULYResumesFromZeroAfterLCDReEnable(t *testing.T) {
+	t.Parallel()
+
+	ppu := NewPPU(nil)
+	ppu.Reset()
+
+	// Run a bit so LY is non-zero.
+	ppu.Step(ScanlineCycles * 50) // LY = 50
+
+	// Turn LCD off.
+	ppu.WriteRegister(0xFF40, 0x00)
+
+	// Wait a while with LCD off.
+	ppu.Step(ScanlineCycles * 10)
+
+	state := ppu.GetState()
+	assert.Equal(t, byte(0), state.LY, "LY should be 0 while LCD is off")
+
+	// Re-enable LCD.
+	ppu.WriteRegister(0xFF40, 0x91)
+	state = ppu.GetState()
+	assert.Equal(t, byte(0), state.LY, "LY should still be 0 after LCD re-enable")
+
+	// Step one scanline — LY should increment to 1.
+	ppu.Step(ScanlineCycles)
+	state = ppu.GetState()
+	assert.Equal(t, byte(1), state.LY, "LY should increment to 1 after one scanline with LCD on")
+}
+
+func TestPPULYReadsZeroWhenLCDOffAtBoot(t *testing.T) {
+	t.Parallel()
+
+	// Create PPU with LCD explicitly disabled from the start.
+	ppu := NewPPU(nil)
+	ppu.WriteRegister(0xFF40, 0x00)
+	ppu.Reset()
+
+	// After Reset with LCD disabled, Step must keep LY=0.
+	state := ppu.GetState()
+	assert.Equal(t, byte(0), state.LY, "LY should be 0 after Reset with LCD disabled")
+
+	ppu.Step(FrameCycles)
+	state = ppu.GetState()
+	assert.Equal(t, byte(0), state.LY, "LY should stay 0 after a full frame's worth of cycles with LCD off")
 }

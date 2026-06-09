@@ -230,6 +230,9 @@ func (c *Core) Step() (int, error) {
 	}
 	if c.Stopped {
 		c.Cycles += 4
+		if (c.MMU.Read(0xFF0F)&c.MMU.Read(0xFFFF)) != 0 {
+			c.Stopped = false
+		}
 		return 4, nil
 	}
 	opcode := c.fetch8()

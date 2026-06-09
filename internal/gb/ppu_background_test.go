@@ -266,6 +266,30 @@ func TestBackgroundPalette(t *testing.T) {
 	assert.Equal(t, byte(0), ppu2.GetScreen()[0][0], "BGP=0")
 }
 
+func TestWindowDisabledByLCDC0(t *testing.T) {
+	t.Parallel()
+	mmu := NewMMU(nil)
+	writeTileToVRAM(mmu, 0, 1)
+	writeTileToVRAM(mmu, 1, 3)
+	fillTileMap(mmu, 0x9800, 0x00)
+	fillTileMap(mmu, 0x9C00, 0x00)
+	mmu.Write(0x9C00, 0x01)
+	ppu := NewPPU(mmu)
+	ppu.Reset()
+	// Set LCDC to: bit 7=1 (LCD enable), bit 6=1 (win tile map 0x9C00), bit 5=1 (win enable)
+	// bit 0=0 (BG/Win disabled), bit 4=1 for unsigned tile addressing so our test tiles resolve.
+	// Value: 0x80 | 0x40 | 0x20 | 0x10 = 0xF0
+	ppu.WriteRegister(0xFF40, 0xF0)
+	ppu.WriteRegister(0xFF4A, 0)  // WY = 0
+	ppu.WriteRegister(0xFF4B, 7)  // WX = 7
+	ppu.Step(FrameCycles)
+	s := ppu.GetScreen()
+	// When LCDC bit 0 is 0, window should not be drawn even though bit 5 is set.
+	// Background rendering also fills with 0 when bit 0 is 0.
+	assert.Equal(t, byte(0), s[0][0], "win disabled by LCDC.0 = 0 at win origin")
+	assert.Equal(t, byte(0), s[8][0], "win disabled by LCDC.0 = 0 inside window area")
+}
+
 func TestBackgroundDisabled(t *testing.T) {
 	t.Parallel()
 	mmu := NewMMU(nil)

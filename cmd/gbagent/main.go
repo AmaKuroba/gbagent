@@ -10,6 +10,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/AmaKuroba/gbagent/dashboard"
@@ -41,6 +44,46 @@ func encodeFrame(fb [160][144]byte) []byte {
 	return buf.Bytes()
 }
 
+// savPath derives the battery save file path from a ROM path.
+// e.g. "roms/pokemon.gb" → "roms/pokemon.sav"
+func savPath(romPath string) string {
+	return romPath[:len(romPath)-len(filepath.Ext(romPath))] + ".sav"
+}
+
+// saveRAM writes battery-backed cartridge RAM to a .sav file.
+func saveRAM(romPath string, cart gb.Cartridge, label string) {
+	if !cart.HasBattery() {
+		return
+	}
+	ramData := cart.SaveRAM()
+	if ramData == nil {
+		return
+	}
+	path := savPath(romPath)
+	if err := os.WriteFile(path, ramData, 0644); err != nil {
+		log.Printf("%s: failed to save battery RAM: %v", label, err)
+	} else {
+		log.Printf("%s: saved battery-backed RAM to %s", label, path)
+	}
+}
+
+// loadRAM reads a .sav file from disk and restores cartridge RAM.
+func loadRAM(romPath string, cart gb.Cartridge) {
+	if !cart.HasBattery() {
+		return
+	}
+	path := savPath(romPath)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("load battery RAM: error reading %s: %v", path, err)
+		}
+		return
+	}
+	cart.LoadRAM(data)
+	log.Printf("loaded battery-backed RAM from %s (%d bytes)", path, len(data))
+}
+
 func runServe(romPath string, port int) {
 	// Load ROM
 	romData, err := os.ReadFile(romPath)
@@ -50,13 +93,29 @@ func runServe(romPath string, port int) {
 
 	// Initialize emulator
 	cart := gb.NewCartridge(romData)
+
+	// Load battery-backed RAM from disk if it exists.
+	loadRAM(romPath, cart)
+
 	mmu := gb.NewMMU(cart)
 	ppu := gb.NewPPU(mmu)
 	mmu.SetPPU(ppu)
+	timer := gb.NewTimer(mmu)
+	mmu.SetTimer(timer)
+	apu := gb.NewAPU(mmu)
+	mmu.SetAPU(apu)
 	cpu := gb.NewCPU(mmu)
 
-	// Set initial CPU state (skip boot ROM)
+	// Create and attach the joypad register handler
+	joypad := gb.NewJoypad(mmu)
+	mmu.SetJoypad(joypad)
+
+	// Set initial CPU registers (matching DMG post-boot-ROM state)
 	cpu.Reset()
+	// Load the DMG boot ROM data so the Nintendo logo copies to VRAM,
+	// then the boot ROM jumps to the cartridge entry point at $0100.
+	mmu.LoadBootROM(gb.DMGBootROMData[:])
+	cpu.PC = 0x0000
 
 	// Start dashboard hub and server
 	hub := dashboard.NewHub()
@@ -84,14 +143,24 @@ func runServe(romPath string, port int) {
 			log.Println("gbagent: shutting down")
 			return
 		case <-frameTicker.C:
-			// Step one full frame (70224 cycles)
-			for i := 0; i < 70224; i++ {
+			// Push current joypad state into the emulator's MMU so the
+			// game reads the pressed buttons via I/O register 0xFF00.
+			mmu.SetJoypadButtons(srv.Joypad().State())
+
+			// Step one full frame (70224 T-cycles).
+			var cyclesThisFrame int
+			for cyclesThisFrame < 70224 {
 				cycles, err := cpu.Step()
 				if err != nil {
 					log.Printf("cpu error: %v", err)
 					return
 				}
 				ppu.Step(cycles)
+				timer.Step(cycles)
+				apu.Step(cycles)
+				mmu.DMAStep(cycles)
+				mmu.SerialStep(cycles)
+				cyclesThisFrame += cycles
 			}
 
 			// Broadcast frame as PNG binary
@@ -100,15 +169,31 @@ func runServe(romPath string, port int) {
 				hub.BroadcastBinary(pngData)
 			}
 
-			// Broadcast game state as JSON text
+			// Broadcast game state + joypad state as JSON text
 			state := cpu.GetState()
 			ppuState := ppu.GetState()
+			joypadBits := srv.Joypad().State()
 			stateJSON := fmt.Sprintf(
-				`{"pc":%d,"af":%d,"bc":%d,"de":%d,"hl":%d,"sp":%d,"ime":%t,"frame":%d}`,
+				`{"pc":%d,"af":%d,"bc":%d,"de":%d,"hl":%d,"sp":%d,"ime":%t,"frame":%d,"joypad":%d}`,
 				state.PC, state.AF, state.BC, state.DE, state.HL, state.SP,
-				state.IME, ppuState.FrameCount,
+				state.IME, ppuState.FrameCount, joypadBits,
 			)
 			hub.BroadcastText([]byte(stateJSON))
+
+			// Broadcast accumulated audio samples as a text message
+			// with the audio data as a comma-separated list of int16 values.
+			if audioBuf := apu.GetAudioBuffer(); len(audioBuf) > 0 {
+				var audioSb strings.Builder
+				audioSb.WriteString(`{"audio":[`)
+				for i, s := range audioBuf {
+					if i > 0 {
+						audioSb.WriteByte(',')
+					}
+					audioSb.WriteString(strconv.Itoa(int(s)))
+				}
+				audioSb.WriteString(`]}`)
+				hub.BroadcastText([]byte(audioSb.String()))
+			}
 		}
 	}
 }

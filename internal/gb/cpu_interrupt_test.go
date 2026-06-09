@@ -281,13 +281,96 @@ func TestHALT_BugWithIMEClearedAndInterruptPending(t *testing.T) {
 	_, err := c.Step()
 	require.NoError(t, err)
 
-	// After the bug, PC should have advanced past HALT
-	// The next byte was consumed as a NOP (PC already incremented by handler)
-	// so PC = testAddr + 2
-	assert.Equal(t, testAddr+2, c.PC,
-		"HALT bug: PC should advance past HALT, then the next byte is consumed as NOP")
+	// After the bug, PC should have advanced past HALT only.
+	// The HALT bug sets HaltBug=true which suppresses PC increment on the
+	// *next* instruction fetch (Step 2), not during HALT itself (Step 1).
+	assert.Equal(t, testAddr+1, c.PC,
+		"HALT bug: PC should advance past HALT only; the next byte's PC increment is suppressed in Step 2")
 	assert.False(t, c.Halted, "HALT bug: CPU should not be halted")
 }
+
+// ---------------------------------------------------------------------------
+// STOP tests
+// ---------------------------------------------------------------------------
+
+func TestSTOP_StopsCPU(t *testing.T) {
+	c := newTestCore()
+	// STOP (0x10) followed by ignored byte (0x00), then NOP (0x00)
+	writeCode(c.MMU, testAddr, 0x10, 0x00, 0x00)
+	c.PC = testAddr
+
+	// Step 1: STOP — enters stopped state
+	_, err := c.Step()
+	require.NoError(t, err)
+	assert.True(t, c.Stopped, "CPU should be stopped after STOP instruction")
+	assert.Equal(t, testAddr+2, c.PC, "PC should advance past STOP and its ignored byte")
+
+	// Step 2: should not execute any instruction while stopped
+	stateBefore := c.GetState()
+	_, err = c.Step()
+	require.NoError(t, err)
+	assert.True(t, c.Stopped, "CPU should remain stopped")
+	assert.Equal(t, stateBefore.PC, c.PC, "PC should not advance while stopped")
+	assert.Equal(t, stateBefore.Cycles+4, c.Cycles, "Cycles should still increment while stopped")
+}
+
+func TestSTOP_WakesOnInterrupt(t *testing.T) {
+	c := newTestCore()
+	c.MMU.Write(0xFFFF, 0x01) // IE: VBlank enabled
+
+	// STOP (0x10) + ignored byte (0x00) + NOP (0x00)
+	writeCode(c.MMU, testAddr, 0x10, 0x00, 0x00)
+	c.PC = testAddr
+	c.MMU.Write(0xFF0F, 0x00) // clear IF initially
+
+	// Step 1: STOP — no interrupt pending, enters stopped state
+	_, err := c.Step()
+	require.NoError(t, err)
+	assert.True(t, c.Stopped, "CPU should be stopped")
+
+	// Set IF (simulate VBlank arriving while stopped)
+	c.MMU.Write(0xFF0F, 0x01)
+
+	// Step 2: should wake from STOP (IF&IE != 0, regardless of IME)
+	_, err = c.Step()
+	require.NoError(t, err)
+	assert.False(t, c.Stopped, "CPU should wake from stopped state")
+	assert.Equal(t, testAddr+2, c.PC, "PC should point to NOP after STOP")
+
+	// Step 3: execute the NOP following STOP
+	_, err = c.Step()
+	require.NoError(t, err)
+	assert.Equal(t, testAddr+3, c.PC, "PC should advance after executing NOP")
+}
+
+func TestSTOP_NoInterruptPending_RemainsStopped(t *testing.T) {
+	c := newTestCore()
+	// IE enabled but no IF bits set
+	c.MMU.Write(0xFFFF, 0x01) // IE: VBlank enabled
+	c.MMU.Write(0xFF0F, 0x00) // IF: nothing pending
+
+	writeCode(c.MMU, testAddr, 0x10, 0x00)
+	c.PC = testAddr
+
+	// Step 1: STOP
+	_, err := c.Step()
+	require.NoError(t, err)
+	assert.True(t, c.Stopped, "CPU should be stopped")
+
+	// Step 2: still stopped (no enabled interrupt pending)
+	_, err = c.Step()
+	require.NoError(t, err)
+	assert.True(t, c.Stopped, "CPU should remain stopped when no interrupt pending")
+}
+
+// ---------------------------------------------------------------------------
+// HALT tests (existing — for reference, these verify the companion task's coverage)
+// ---------------------------------------------------------------------------
+// TestHALT_WakesOnInterrupt_ButDoesNotService already verifies that HALT
+// wakes on an enabled interrupt even when IME=0, which is the HALT edge case
+// described in the companion task.
+// TestHALT_NormalWithIMEClearedNoInterrupt already verifies that HALT
+// remains halted when no interrupt is pending.
 
 func TestHALT_NormalWithIMEClearedNoInterrupt(t *testing.T) {
 	c := newTestCore()

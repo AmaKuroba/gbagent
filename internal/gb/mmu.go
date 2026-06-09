@@ -11,4 +11,7 @@ type MMU interface {
 	ReadIF() byte
 	ReadIE() byte
 	WriteIF(val byte)
+	SetJoypadButtons(buttons byte)
+	DMAStep(cycles int)
+	SerialStep(cycles int)
 }

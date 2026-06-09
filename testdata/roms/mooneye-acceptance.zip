@@ -1,0 +1,14 @@
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+<h1>404 Not Found</h1>
+<ul>
+<li>Code: NoSuchKey</li>
+<li>Message: The specified key does not exist.</li>
+<li>Key: releases/mts/acceptance.zip</li>
+<li>RequestId: F3T7NQFR5M3YF43V</li>
+<li>HostId: 1VQi5erQhycx7AxBmsyP5WUqo3a92B8wl1KEgmIPeMeZpaLiMPj4OtAQDJGWvpFRVC68fp6ShS9ovJRJ4vBovhVbUMeXJLZ8</li>
+</ul>
+<hr/>
+</body>
+</html>

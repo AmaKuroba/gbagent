@@ -192,6 +192,51 @@ function log(msg, cls) {
   if (logEl.children.length > 50) logEl.removeChild(logEl.firstChild);
 }
 
+// ---------------------------------------------------------------------------
+// WebAudio audio playback
+// ---------------------------------------------------------------------------
+let audioCtx = null;
+let audioQueue = [];      // queue of Float32AudioBuffer objects
+let audioScheduled = 0;   // total samples scheduled so far
+const AUDIO_SAMPLE_RATE = 44100;
+
+function ensureAudioContext() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume();
+    }
+  }
+  return audioCtx;
+}
+
+function onAudioSamples(samples) {
+  // samples is an array of int16 values, stereo interleaved (L,R,L,R,...)
+  if (samples.length < 2) return;
+  const ctx = ensureAudioContext();
+
+  // Convert int16[] to Float32 stereo interleaved buffer
+  const len = samples.length;
+  const floatBuf = new Float32Array(len);
+  for (let i = 0; i < len; i++) {
+    floatBuf[i] = Math.max(-1, Math.min(1, samples[i] / 32768));
+  }
+
+  const buffer = ctx.createBuffer(2, len / 2, AUDIO_SAMPLE_RATE);
+  const chL = buffer.getChannelData(0);
+  const chR = buffer.getChannelData(1);
+  for (let i = 0, j = 0; i < len; i += 2, j++) {
+    chL[j] = floatBuf[i];
+    chR[j] = floatBuf[i + 1];
+  }
+
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(ctx.destination);
+  source.start(audioScheduled > 0 ? audioScheduled : ctx.currentTime);
+  audioScheduled += len / 2 / AUDIO_SAMPLE_RATE;
+}
+
 function connect() {
   if (ws) ws.close();
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -235,18 +280,23 @@ function connect() {
       };
       img.src = url;
     } else {
-      // Text message = game state JSON
+      // Text message = game state JSON or audio data
       try {
-        const state = JSON.parse(event.data);
-        document.getElementById('pc').textContent = '0x' + (state.pc || 0).toString(16).toUpperCase().padStart(4, '0');
-        document.getElementById('af').textContent = '0x' + (state.af || 0).toString(16).toUpperCase().padStart(4, '0');
-        document.getElementById('bc').textContent = '0x' + (state.bc || 0).toString(16).toUpperCase().padStart(4, '0');
-        document.getElementById('de').textContent = '0x' + (state.de || 0).toString(16).toUpperCase().padStart(4, '0');
-        document.getElementById('hl').textContent = '0x' + (state.hl || 0).toString(16).toUpperCase().padStart(4, '0');
-        document.getElementById('sp').textContent = '0x' + (state.sp || 0).toString(16).toUpperCase().padStart(4, '0');
-        document.getElementById('ime').textContent = state.ime ? 'ON' : 'OFF';
-        document.getElementById('frame').textContent = state.frame != null ? state.frame : '—';
-        document.getElementById('fps').textContent = 'Frame ' + (state.frame || '—');
+        const data = JSON.parse(event.data);
+        if (data.audio) {
+          // Audio data: []int16 samples, stereo interleaved (L,R,L,R,...)
+          onAudioSamples(data.audio);
+          return;
+        }
+        document.getElementById('pc').textContent = '0x' + (data.pc || 0).toString(16).toUpperCase().padStart(4, '0');
+        document.getElementById('af').textContent = '0x' + (data.af || 0).toString(16).toUpperCase().padStart(4, '0');
+        document.getElementById('bc').textContent = '0x' + (data.bc || 0).toString(16).toUpperCase().padStart(4, '0');
+        document.getElementById('de').textContent = '0x' + (data.de || 0).toString(16).toUpperCase().padStart(4, '0');
+        document.getElementById('hl').textContent = '0x' + (data.hl || 0).toString(16).toUpperCase().padStart(4, '0');
+        document.getElementById('sp').textContent = '0x' + (data.sp || 0).toString(16).toUpperCase().padStart(4, '0');
+        document.getElementById('ime').textContent = data.ime ? 'ON' : 'OFF';
+        document.getElementById('frame').textContent = data.frame != null ? data.frame : '\u2014';
+        document.getElementById('fps').textContent = 'Frame ' + (data.frame || '\u2014');
       } catch(e) {
         // Not JSON — might be a log message
         log(event.data);
@@ -263,7 +313,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     document.querySelector(`[data-gb="${gbBtn}"]`)?.classList.add('active');
     if (connected && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ key: e.key }));
+      ws.send(JSON.stringify({ key: e.key, pressed: true }));
     }
   }
 });
@@ -273,6 +323,9 @@ document.addEventListener('keyup', (e) => {
   if (gbBtn) {
     e.preventDefault();
     document.querySelector(`[data-gb="${gbBtn}"]`)?.classList.remove('active');
+    if (connected && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ key: e.key, pressed: false }));
+    }
   }
 });
 
@@ -286,16 +339,22 @@ document.querySelectorAll('[data-gb]').forEach(el => {
     e.preventDefault();
     el.classList.add('active');
     if (connected && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ key: keyName }));
+      ws.send(JSON.stringify({ key: keyName, pressed: true }));
     }
   });
   el.addEventListener('pointerup', (e) => {
     e.preventDefault();
     el.classList.remove('active');
+    if (connected && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ key: keyName, pressed: false }));
+    }
   });
   el.addEventListener('pointerleave', (e) => {
     e.preventDefault();
     el.classList.remove('active');
+    if (connected && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ key: keyName, pressed: false }));
+    }
   });
 });
 
