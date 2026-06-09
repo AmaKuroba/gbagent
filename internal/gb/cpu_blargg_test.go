@@ -91,38 +91,34 @@ func blarggSerialOutput(t *testing.T, romPath string, timeout time.Duration) str
 	done := make(chan string, 1)
 
 	go func() {
-		// Track cumulative cycles for VBlank generation
-		var cycleCounter uint64
+		var lastVBlank uint64
 
 		for {
-			// --- LCD timing via real PPU ---
-			// Compute LY from cumulative cycles
-			// One frame = 70224 cycles = 154 scanlines
-			frameOffset := cycleCounter % vblankCycles
-			scanline := frameOffset / 456
-			if scanline >= 154 {
-				scanline = 0
-			}
-			mmu.Write(0xFF44, byte(scanline))
-
-			// Fire VBlank interrupt at start of VBlank period (scanline 144)
-			oldLY := byte(0)
-			if frameOffset >= 456 {
-				oldLY = byte((frameOffset - 456) / 456)
-			}
-			if scanline == 144 && oldLY == 143 {
+			// --- LCD timing (original inline version) ---
+			vOff := cpu.Cycles - lastVBlank
+			if vOff >= vblankCycles {
 				mmu.Write(0xFF0F, mmu.Read(0xFF0F)|0x01)
+				lastVBlank = cpu.Cycles
+				vOff = 0
 			}
+			scanlines := vOff / 456
+			var ly byte
+			if scanlines < 10 {
+				ly = byte(144 + scanlines)
+			} else {
+				ly = byte(scanlines - 10)
+				if ly > 143 {
+					ly = 143
+				}
+			}
+			mmu.Write(0xFF44, ly)
 
 			cycles, err := cpu.Step()
-			cycleCounter += uint64(cycles)
-
 			if err != nil {
 				done <- serialBuf.String()
 				return
 			}
 
-			// Advance timer with real timer component
 			timer.Step(cycles)
 
 			// --- Serial output ---

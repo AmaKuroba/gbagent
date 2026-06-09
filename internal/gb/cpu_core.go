@@ -17,6 +17,11 @@ type Core struct {
 
 	// Memory bus (interface)
 	MMU MMU
+
+	// Deferred memory write for cycle-accurate timing
+	pendWrit bool
+	pendAddr uint16
+	pendData byte
 }
 
 var _ CPU = (*Core)(nil)
@@ -209,6 +214,21 @@ func (c *Core) dec8(val byte) byte {
 	return r
 }
 
+// schedWrite schedules a memory write to be performed AFTER the handler returns.
+func (c *Core) schedWrite(addr uint16, val byte) {
+	c.pendWrit = true
+	c.pendAddr = addr
+	c.pendData = val
+}
+
+// execPend performs any deferred memory write.
+func (c *Core) execPend() {
+	if c.pendWrit {
+		c.MMU.Write(c.pendAddr, c.pendData)
+		c.pendWrit = false
+	}
+}
+
 func (c *Core) addHL(val uint16) {
 	r := uint32(c.HL) + uint32(val)
 	c.setFlagN(false)
@@ -250,6 +270,7 @@ func (c *Core) Step() (int, error) {
 			return 4, nil
 		}
 		cycles, err := h(c)
+		c.execPend()
 		c.PC = savedPC // restore so next fetch re-reads same opcode
 		c.Cycles += uint64(cycles)
 
@@ -267,6 +288,7 @@ func (c *Core) Step() (int, error) {
 		return 4, nil
 	}
 	cycles, err := h(c)
+	c.execPend()
 	c.Cycles += uint64(cycles)
 
 	// Handle EI delay (after instruction execution, not during EI's own step)

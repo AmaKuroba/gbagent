@@ -19,12 +19,21 @@ func initMainHandlers() {
 				continue // 0x76 = HALT
 			}
 			d, s := dst, src
-			mainHandler[op] = func(c *Core) (int, error) {
-				c.writeReg8(d, c.readReg8(s))
-				if d == 6 || s == 6 {
+			if d == 6 {
+				// LD (HL), r8: write deferred to last instruction cycle
+				mainHandler[op] = func(c *Core) (int, error) {
+					val := c.readReg8(s) // s != 6, register read
+					c.schedWrite(c.HL, val)
 					return 8, nil
 				}
-				return 4, nil
+			} else {
+				mainHandler[op] = func(c *Core) (int, error) {
+					c.writeReg8(d, c.readReg8(s))
+					if s == 6 {
+						return 8, nil
+					}
+					return 4, nil
+				}
 			}
 		}
 	}
@@ -45,13 +54,19 @@ func initMainHandlers() {
 	// LD r8,d8
 	for _, e := range [][2]int{{0x06, 0}, {0x0E, 1}, {0x16, 2}, {0x1E, 3}, {0x26, 4}, {0x2E, 5}, {0x36, 6}, {0x3E, 7}} {
 		op, r := e[0], e[1]
-		mainHandler[op] = func(c *Core) (int, error) {
-			val := c.fetch8()
-			c.writeReg8(r, val)
-			if r == 6 {
+		if r == 6 {
+			// LD (HL), d8: write deferred
+			mainHandler[op] = func(c *Core) (int, error) {
+				val := c.fetch8()
+				c.schedWrite(c.HL, val)
 				return 12, nil
 			}
-			return 8, nil
+		} else {
+			mainHandler[op] = func(c *Core) (int, error) {
+				val := c.fetch8()
+				c.writeReg8(r, val)
+				return 8, nil
+			}
 		}
 	}
 
@@ -61,60 +76,63 @@ func initMainHandlers() {
 	mainHandler[0x21] = func(c *Core) (int, error) { c.HL = c.fetch16(); return 12, nil }
 	mainHandler[0x31] = func(c *Core) (int, error) { c.SP = c.fetch16(); return 12, nil }
 
-	// LD (a16),SP
+	// LD (a16),SP — keep direct writes (too complex for simple deferred model)
 	mainHandler[0x08] = func(c *Core) (int, error) {
 		addr := c.fetch16()
-		c.MMU.Write16(addr, c.SP)
+		c.MMU.Write(addr, byte(c.SP))
+		c.MMU.Write(addr+1, byte(c.SP>>8))
 		return 20, nil
 	}
 
-	// LD (BC),A / LD (DE),A
-	mainHandler[0x02] = func(c *Core) (int, error) { c.MMU.Write(c.BC, c.A()); return 8, nil }
-	mainHandler[0x12] = func(c *Core) (int, error) { c.MMU.Write(c.DE, c.A()); return 8, nil }
+	// LD (BC),A / LD (DE),A — writes deferred
+	mainHandler[0x02] = func(c *Core) (int, error) { c.schedWrite(c.BC, c.A()); return 8, nil }
+	mainHandler[0x12] = func(c *Core) (int, error) { c.schedWrite(c.DE, c.A()); return 8, nil }
 
 	// LD A,(BC) / LD A,(DE)
 	mainHandler[0x0A] = func(c *Core) (int, error) { c.setA(c.MMU.Read(c.BC)); return 8, nil }
 	mainHandler[0x1A] = func(c *Core) (int, error) { c.setA(c.MMU.Read(c.DE)); return 8, nil }
 
 	// LDI (HL),A / LDI A,(HL)
-	mainHandler[0x22] = func(c *Core) (int, error) { c.MMU.Write(c.HL, c.A()); c.HL++; return 8, nil }
+	mainHandler[0x22] = func(c *Core) (int, error) { c.schedWrite(c.HL, c.A()); c.HL++; return 8, nil }
 	mainHandler[0x2A] = func(c *Core) (int, error) { c.setA(c.MMU.Read(c.HL)); c.HL++; return 8, nil }
 
 	// LDD (HL),A / LDD A,(HL)
-	mainHandler[0x32] = func(c *Core) (int, error) { c.MMU.Write(c.HL, c.A()); c.HL--; return 8, nil }
+	mainHandler[0x32] = func(c *Core) (int, error) { c.schedWrite(c.HL, c.A()); c.HL--; return 8, nil }
 	mainHandler[0x3A] = func(c *Core) (int, error) { c.setA(c.MMU.Read(c.HL)); c.HL--; return 8, nil }
 
-	// LDH (a8),A (0xE0)
+	// LDH (a8),A (0xE0) — write deferred
 	mainHandler[0xE0] = func(c *Core) (int, error) {
-		c.MMU.Write(0xFF00|uint16(c.fetch8()), c.A())
+		off := c.fetch8()
+		c.schedWrite(0xFF00|uint16(off), c.A())
 		return 12, nil
 	}
 
-	// LDH A,(a8) (0xF0)
+	// LDH A,(a8) (0xF0) — read remains immediate
 	mainHandler[0xF0] = func(c *Core) (int, error) {
 		c.setA(c.MMU.Read(0xFF00 | uint16(c.fetch8())))
 		return 12, nil
 	}
 
-	// LDH (C),A (0xE2)
+	// LDH (C),A (0xE2) — write deferred
 	mainHandler[0xE2] = func(c *Core) (int, error) {
-		c.MMU.Write(0xFF00|uint16(c.C()), c.A())
+		c.schedWrite(0xFF00|uint16(c.C()), c.A())
 		return 8, nil
 	}
 
-	// LDH A,(C) (0xF2)
+	// LDH A,(C) (0xF2) — read remains immediate
 	mainHandler[0xF2] = func(c *Core) (int, error) {
 		c.setA(c.MMU.Read(0xFF00 | uint16(c.C())))
 		return 8, nil
 	}
 
-	// LD (a16),A (0xEA)
+	// LD (a16),A (0xEA) — write deferred
 	mainHandler[0xEA] = func(c *Core) (int, error) {
-		c.MMU.Write(c.fetch16(), c.A())
+		addr := c.fetch16()
+		c.schedWrite(addr, c.A())
 		return 16, nil
 	}
 
-	// LD A,(a16) (0xFA)
+	// LD A,(a16) (0xFA) — read remains immediate
 	mainHandler[0xFA] = func(c *Core) (int, error) {
 		c.setA(c.MMU.Read(c.fetch16()))
 		return 16, nil
@@ -277,24 +295,36 @@ func initMainHandlers() {
 	// INC r8
 	for _, e := range [][2]int{{0x04, 0}, {0x0C, 1}, {0x14, 2}, {0x1C, 3}, {0x24, 4}, {0x2C, 5}, {0x34, 6}, {0x3C, 7}} {
 		op, r := e[0], e[1]
-		mainHandler[op] = func(c *Core) (int, error) {
-			c.writeReg8(r, c.inc8(c.readReg8(r)))
-			if r == 6 {
+		if r == 6 {
+			mainHandler[op] = func(c *Core) (int, error) {
+				val := c.MMU.Read(c.HL)
+				result := c.inc8(val)
+				c.schedWrite(c.HL, result)
 				return 12, nil
 			}
-			return 4, nil
+		} else {
+			mainHandler[op] = func(c *Core) (int, error) {
+				c.writeReg8(r, c.inc8(c.readReg8(r)))
+				return 4, nil
+			}
 		}
 	}
 
 	// DEC r8
 	for _, e := range [][2]int{{0x05, 0}, {0x0D, 1}, {0x15, 2}, {0x1D, 3}, {0x25, 4}, {0x2D, 5}, {0x35, 6}, {0x3D, 7}} {
 		op, r := e[0], e[1]
-		mainHandler[op] = func(c *Core) (int, error) {
-			c.writeReg8(r, c.dec8(c.readReg8(r)))
-			if r == 6 {
+		if r == 6 {
+			mainHandler[op] = func(c *Core) (int, error) {
+				val := c.MMU.Read(c.HL)
+				result := c.dec8(val)
+				c.schedWrite(c.HL, result)
 				return 12, nil
 			}
-			return 4, nil
+		} else {
+			mainHandler[op] = func(c *Core) (int, error) {
+				c.writeReg8(r, c.dec8(c.readReg8(r)))
+				return 4, nil
+			}
 		}
 	}
 

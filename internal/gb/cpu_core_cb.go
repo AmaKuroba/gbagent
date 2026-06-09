@@ -61,8 +61,10 @@ func initCBHandlers() {
 			c.setFlagC(carry)
 
 			if isHL {
+				c.schedWrite(c.HL, result)
 				return 16, nil
 			}
+			c.writeReg8(reg, result)
 			return 8, nil
 		}
 	}
@@ -90,43 +92,51 @@ func initCBHandlers() {
 		}
 	}
 
-	// ===== RES b,r (0x80-0xBF) — clear bit, no flags affected =====
+	// ===== RES b,r (0x80-0xBF) — clear bit, write deferred for (HL) =====
 	for op := 0x80; op <= 0xBF; op++ {
 		op := byte(op)
 		reg := int(op & 0x07)
 		bit := (op >> 3) & 0x07
 		isHL := reg == 6
 
-		cbHandler[op] = func(c *Core) (int, error) {
-			val := c.readReg8(reg)
-			val &^= 1 << bit
-			c.writeReg8(reg, val)
-			// All flags preserved
-
-			if isHL {
+		if isHL {
+			cbHandler[op] = func(c *Core) (int, error) {
+				val := c.MMU.Read(c.HL)
+				val &^= 1 << bit
+				c.schedWrite(c.HL, val)
 				return 16, nil
 			}
-			return 8, nil
+		} else {
+			cbHandler[op] = func(c *Core) (int, error) {
+				val := c.readReg8(reg)
+				val &^= 1 << bit
+				c.writeReg8(reg, val)
+				return 8, nil
+			}
 		}
 	}
 
-	// ===== SET b,r (0xC0-0xFF) — set bit, no flags affected =====
+	// ===== SET b,r (0xC0-0xFF) — set bit, write deferred for (HL) =====
 	for op := 0xC0; op <= 0xFF; op++ {
 		op := byte(op)
 		reg := int(op & 0x07)
 		bit := (op >> 3) & 0x07
 		isHL := reg == 6
 
-		cbHandler[op] = func(c *Core) (int, error) {
-			val := c.readReg8(reg)
-			val |= 1 << bit
-			c.writeReg8(reg, val)
-			// All flags preserved
-
-			if isHL {
+		if isHL {
+			cbHandler[op] = func(c *Core) (int, error) {
+				val := c.MMU.Read(c.HL)
+				val |= 1 << bit
+				c.schedWrite(c.HL, val)
 				return 16, nil
 			}
-			return 8, nil
+		} else {
+			cbHandler[op] = func(c *Core) (int, error) {
+				val := c.readReg8(reg)
+				val |= 1 << bit
+				c.writeReg8(reg, val)
+				return 8, nil
+			}
 		}
 	}
 }
