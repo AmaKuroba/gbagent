@@ -104,11 +104,12 @@ func runMooneye(t *testing.T, name string, timeout time.Duration) bool {
 	return true
 }
 
-// TestMooneye_Acceptance runs all DMG-compatible Mooneye acceptance tests
-// (those without hardware-revision suffixes like -dmg0, -C, -GS, etc.)
+// TestMooneye_Acceptance runs all DMG-compatible Mooneye acceptance tests.
+// Skipped in short mode — run with `go test -run TestMooneye -v -timeout 10m`
+// to execute the full 5-minute suite.
 func TestMooneye_Acceptance(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping Mooneye tests in short mode")
+		t.Skip("skipping Mooneye tests in short mode — use -timeout 10m for full run")
 	}
 
 	// Tests from acceptance/*.gb that target generic DMG (no suffix filtering done via list)

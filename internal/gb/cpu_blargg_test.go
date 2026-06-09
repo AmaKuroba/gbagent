@@ -2,6 +2,7 @@ package gb
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -209,41 +210,99 @@ func TestBlargg_oam_bug(t *testing.T) {
 // Mooneye tests need proper boot ROM + display output — skipping until boot path is fully wired.
 // See https://gekkio.fi/files/mooneye-test-suite/ for the full suite.
 
-// TestDMGAcid2 runs the dmg-acid2 PPU test ROM and checks framebuffer output.
-func TestDMGAcid2(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping PPU test in short mode")
-	}
+// runDMGAcid2 runs the dmg-acid2 test ROM for the given number of frames
+// and returns the final framebuffer. Uses full emulator context (PPU, Timer, MMU).
+func runDMGAcid2(t *testing.T, targetFrames int) [160][144]byte {
 	data, err := os.ReadFile(testRomPath("dmg_acid2.gb"))
 	require.NoError(t, err, "failed to read dmg-acid2 ROM")
+
 	mmu := NewMMU(nil)
 	mmu.LoadROM(data)
-	cpu := NewCore(mmu)
-	cpu.Reset()
+
 	ppu := NewPPU(mmu)
-	targetFrames := 200
-	var lastVBlank uint64
+	ppu.WriteRegister(0xFF40, 0x91) // enable LCD (boot ROM normally does this)
+	mmu.SetPPU(ppu)
+
+	timer := NewTimer(mmu)
+	mmu.SetTimer(timer)
+
+	cpu := NewCore(mmu)
+	mmu.SetCPU(cpu)
+	cpu.Reset()
+
 	for frame := 0; frame < targetFrames; frame++ {
 		for {
 			_, err := cpu.Step()
 			if err != nil {
 				t.Fatalf("CPU error at frame %d, PC=0x%04X: %v", frame, cpu.PC, err)
 			}
-			vOff := cpu.Cycles - lastVBlank
-			if vOff >= vblankCycles {
-				lastVBlank = cpu.Cycles
+			if mmu.Read(0xFF44) >= 144 {
 				break
 			}
+		}
+		for {
+			_, err := cpu.Step()
+			if err != nil {
+				t.Fatalf("CPU error at frame %d, PC=0x%04X: %v", frame, cpu.PC, err)
+			}
+			if mmu.Read(0xFF44) >= 144 {
+				continue
+			}
+			break
 		}
 		if sc := mmu.Read(0xFF02); sc&0x80 != 0 {
 			t.Logf("Frame %d: serial output: %c", frame, mmu.Read(0xFF01))
 			mmu.Write(0xFF02, 0)
 		}
 	}
-	screen := ppu.GetScreen()
-	_ = screen
-	t.Log("dmg-acid2 ran for", targetFrames, "frames")
-	t.Skip("dmg-acid2: crash-test only — need pixel-level verification")
+	return ppu.GetScreen()
+}
+
+// dmgAcid2GoldenHash is the SHA256 of a correct DMG Acid2 framebuffer.
+// To update: run `go test -run TestDMGAcid2 -v` and update the hash
+// if the expected output has changed.
+const dmgAcid2GoldenHash = "879c6bab372a1e5265246a99586ce71129f92d37d425ba7fdb45e90e464081a9"
+
+// TestDMGAcid2 runs the dmg-acid2 PPU test ROM and checks framebuffer output.
+func TestDMGAcid2(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping PPU test in short mode")
+	}
+
+	screen := runDMGAcid2(t, 200)
+
+	// Flatten and hash the framebuffer for comparison against golden reference
+	var flat [160 * 144]byte
+	for x := 0; x < 160; x++ {
+		for y := 0; y < 144; y++ {
+			flat[x*144+y] = screen[x][y]
+		}
+	}
+	h := sha256.Sum256(flat[:])
+	got := fmt.Sprintf("%x", h)
+
+	t.Logf("dmg-acid2 hash: %s", got)
+	if got != dmgAcid2GoldenHash {
+		// Show pixel distribution for debugging
+		var zero, one, two, three int
+		for x := 0; x < 160; x++ {
+			for y := 0; y < 144; y++ {
+				switch screen[x][y] {
+				case 0:
+					zero++
+				case 1:
+					one++
+				case 2:
+					two++
+				case 3:
+					three++
+				}
+			}
+		}
+		t.Fatalf("dmg-acid2: hash mismatch\n  got:  %s\n  want: %s\n  pixels: 0=%d 1=%d 2=%d 3=%d",
+			got, dmgAcid2GoldenHash, zero, one, two, three)
+	}
+	t.Log("dmg-acid2: pixel-perfect PASS")
 }
 
 func TestBlargg_halt_bug(t *testing.T) {
