@@ -374,3 +374,74 @@ func blarggWRAMOutput(t *testing.T, romPath string, timeout time.Duration) strin
 		return wram
 	}
 }
+
+// TestDMGSound checks $A000 (MBC1 RAM) for the test result signature.
+// dmg_sound.gb writes $DE $B0 $61 to $A001-$A003 when running,
+// $A000 = 0x80 during test, 0 on pass, >0 on failure.
+func TestDMGSound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping DMG sound test in short mode")
+	}
+
+	data, err := os.ReadFile(filepath.Join(testRomPath("dmg_sound"), "dmg_sound.gb"))
+	require.NoError(t, err, "failed to read dmg_sound.gb")
+
+	mmu := NewMMU(nil)
+	mmu.LoadROM(data)
+
+	ppu := NewPPU(mmu)
+	ppu.WriteRegister(0xFF40, 0x91)
+	mmu.SetPPU(ppu)
+
+	timer := NewTimer(mmu)
+	mmu.SetTimer(timer)
+
+	mmu.SetAPU(NewAPU(mmu))
+
+	cpu := NewCore(mmu)
+	mmu.SetCPU(cpu)
+	cpu.Reset()
+
+	done := make(chan struct{}, 1)
+	go func() {
+		for {
+			_, err := cpu.Step()
+			if err != nil {
+				done <- struct{}{}
+				return
+			}
+			sig1 := mmu.Read(0xA001)
+			sig2 := mmu.Read(0xA002)
+			sig3 := mmu.Read(0xA003)
+			if sig1 == 0xDE && sig2 == 0xB0 && sig3 == 0x61 {
+				status := mmu.Read(0xA000)
+				if status != 0x80 {
+					done <- struct{}{}
+					return
+				}
+			}
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("dmg_sound timed out")
+	}
+
+	status := mmu.Read(0xA000)
+	var textBuf []byte
+	for addr := uint16(0xA004); addr <= 0xBFFF; addr++ {
+		b := mmu.Read(addr)
+		if b == 0 {
+			break
+		}
+		textBuf = append(textBuf, b)
+	}
+
+	t.Logf("dmg_sound status=%d text=%q", status, string(textBuf))
+	if status != 0 {
+		t.Fatalf("dmg_sound FAILED (status=%d): %s", status, string(textBuf))
+	}
+	t.Log("dmg_sound: ALL TESTS PASSED")
+}
