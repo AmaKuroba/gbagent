@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"image"
@@ -11,8 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/AmaKuroba/gbagent/dashboard"
@@ -133,7 +132,7 @@ func runServe(romPath string, port int, mcpPort int) {
 	}()
 
 	// Create MCP bridge and SSE server.
-	bridge := newBridge(mmu, cpu, ppu, timer, apu, cart, romPath)
+	bridge := newBridge(mmu, cpu, ppu, timer, apu, cart, romPath, hub)
 
 	mcpServer := mcp.NewServer(bridge)
 	sseServer := server.NewSSEServer(
@@ -183,7 +182,7 @@ func runServe(romPath string, port int, mcpPort int) {
 			// Broadcast frame as PNG binary
 			fb := ppu.GetScreen()
 			if pngData := encodeFrame(fb); pngData != nil {
-				hub.BroadcastBinary(pngData)
+				hub.BroadcastBinary(append([]byte{0x00}, pngData...))
 			}
 
 			// Broadcast game state + joypad state as JSON text
@@ -197,20 +196,15 @@ func runServe(romPath string, port int, mcpPort int) {
 			)
 			hub.BroadcastText([]byte(stateJSON))
 
-			// Broadcast accumulated audio samples as a text message
-			// with the audio data as a comma-separated list of int16 values.
-			if audioBuf := apu.GetAudioBuffer(); len(audioBuf) > 0 {
-				var audioSb strings.Builder
-				audioSb.WriteString(`{"audio":[`)
-				for i, s := range audioBuf {
-					if i > 0 {
-						audioSb.WriteByte(',')
-					}
-					audioSb.WriteString(strconv.Itoa(int(s)))
-				}
-				audioSb.WriteString(`]}`)
-				hub.BroadcastText([]byte(audioSb.String()))
+		// Broadcast accumulated audio samples as a binary message.
+		if audioBuf := apu.GetAudioBuffer(); len(audioBuf) > 0 {
+			b := make([]byte, 2+len(audioBuf)*2) // 2-byte sample count + raw int16 LE
+			binary.LittleEndian.PutUint16(b[:2], uint16(len(audioBuf)/2))
+			for i, s := range audioBuf {
+				binary.LittleEndian.PutUint16(b[2+i*2:], uint16(s))
 			}
+			hub.BroadcastBinary(append([]byte{0x01}, b...))
+		}
 		}
 	}
 }

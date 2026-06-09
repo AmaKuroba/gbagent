@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"os"
 
+	"github.com/AmaKuroba/gbagent/dashboard"
 	"github.com/AmaKuroba/gbagent/internal/gb"
 	"github.com/AmaKuroba/gbagent/mcp"
 )
@@ -27,10 +29,20 @@ type mcpBridge struct {
 	cart    gb.Cartridge
 	romPath string
 
+	hub *dashboard.Hub
 	cmds chan mcpCmd
 }
 
-func newBridge(mmu *gb.MemoryBus, cpu *gb.Core, ppu *gb.PPUCore, timer *gb.Timer, apu *gb.APU, cart gb.Cartridge, romPath string) *mcpBridge {
+// broadcastAction sends an action event to the dashboard's WebSocket clients.
+func (b *mcpBridge) broadcastAction(tool, args string) {
+	if b.hub == nil {
+		return
+	}
+	data, _ := json.Marshal(map[string]string{"action": tool, "args": args})
+	b.hub.BroadcastText(data)
+}
+
+func newBridge(mmu *gb.MemoryBus, cpu *gb.Core, ppu *gb.PPUCore, timer *gb.Timer, apu *gb.APU, cart gb.Cartridge, romPath string, hub *dashboard.Hub) *mcpBridge {
 	return &mcpBridge{
 		mmu:     mmu,
 		cpu:     cpu,
@@ -39,6 +51,7 @@ func newBridge(mmu *gb.MemoryBus, cpu *gb.Core, ppu *gb.PPUCore, timer *gb.Timer
 		apu:     apu,
 		cart:    cart,
 		romPath: romPath,
+		hub:     hub,
 		cmds:    make(chan mcpCmd, 64),
 	}
 }
@@ -88,6 +101,7 @@ var btnBits = map[string]byte{
 }
 
 func (b *mcpBridge) GetScreen() [160][144]byte {
+	b.broadcastAction("get_screen", "")
 	result := b.exec(func() any {
 		b.runFrame()
 		return b.ppu.GetScreen()
@@ -96,6 +110,7 @@ func (b *mcpBridge) GetScreen() [160][144]byte {
 }
 
 func (b *mcpBridge) PressButton(button string) error {
+	b.broadcastAction("press_button", button)
 	bit, ok := btnBits[button]
 	if !ok {
 		return fmt.Errorf("unknown button: %s", button)
@@ -119,6 +134,7 @@ func (b *mcpBridge) PressButton(button string) error {
 }
 
 func (b *mcpBridge) ReadRAM(addr uint16) byte {
+	b.broadcastAction("read_ram", fmt.Sprintf("0x%04X", addr))
 	result := b.exec(func() any {
 		return b.mmu.Read(addr)
 	})
@@ -126,6 +142,7 @@ func (b *mcpBridge) ReadRAM(addr uint16) byte {
 }
 
 func (b *mcpBridge) WriteRAM(addr uint16, val byte) {
+	b.broadcastAction("write_ram", fmt.Sprintf("0x%04X = 0x%02X", addr, val))
 	b.exec(func() any {
 		b.mmu.Write(addr, val)
 		return nil
@@ -133,6 +150,7 @@ func (b *mcpBridge) WriteRAM(addr uint16, val byte) {
 }
 
 func (b *mcpBridge) GetState() *mcp.EmulatorState {
+	b.broadcastAction("get_state", "")
 	result := b.exec(func() any {
 		b.runFrame()
 
@@ -172,6 +190,7 @@ func (b *mcpBridge) GetState() *mcp.EmulatorState {
 }
 
 func (b *mcpBridge) SaveState(path string) error {
+	b.broadcastAction("save_state", path)
 	err := b.exec(func() any {
 		state := saveFile{
 			CPU:   b.cpu.GetState(),
@@ -197,6 +216,7 @@ func (b *mcpBridge) SaveState(path string) error {
 }
 
 func (b *mcpBridge) LoadState(path string) error {
+	b.broadcastAction("load_state", path)
 	err := b.exec(func() any {
 		f, err := os.Open(path)
 		if err != nil {
