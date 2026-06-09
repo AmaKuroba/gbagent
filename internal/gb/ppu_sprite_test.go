@@ -36,7 +36,7 @@ func TestSpriteRender(t *testing.T) {
 	writeTileToVRAM(mmu, 0, 0)
 	fillTileMap(mmu, 0x9800, 0x00)
 
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
 
 	assert.Equal(t, byte(3), s[10][10], "sprite top-left")
@@ -65,7 +65,7 @@ func TestSpriteDisabled(t *testing.T) {
 	writeTileToVRAM(mmu, 0, 0)
 	fillTileMap(mmu, 0x9800, 0x00)
 
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
 
 	assert.Equal(t, byte(0), s[10][10], "sprite invisible when OBJ disabled")
@@ -92,7 +92,7 @@ func TestSpritePriority(t *testing.T) {
 	writeTileToVRAM(mmu, 0, 0)
 	fillTileMap(mmu, 0x9800, 0x00)
 
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
 
 	// At (10,10): only sprite 0 covers this
@@ -117,13 +117,14 @@ func TestSpriteFlip(t *testing.T) {
 
 	// Build tile 1: row 0 has pattern (pixel 0=shade1, pixel 1=shade2, pixel 2=shade3, rest=0)
 	// Row 1: pixel 0=shade1. Rows 2-7: all 0.
+	// Game Boy tile format: bit 7 = leftmost pixel, bit 0 = rightmost pixel.
 	t1 := uint16(0x8000 + 1*16)
-	// Row 0: lo bits 0,2=1 → pixels 0,2 have lo=1; hi bits 1,2=1 → pixels 1,2 have hi=1
-	// pixel 0 = 01 = 1, pixel 1 = 10 = 2, pixel 2 = 11 = 3, rest = 0
-	mmu.Write(t1, 0x05)
-	mmu.Write(t1+1, 0x06)
-	// Row 1: pixel 0=1
-	mmu.Write(t1+2, 0x01)
+	// Row 0: pixel 0=1 → lo bit 7=1, pixel 1=2 → hi bit 6=1, pixel 2=3 → bits 5 of both
+	// lo = 0b10100000 = 0xA0, hi = 0b01100000 = 0x60
+	mmu.Write(t1, 0xA0)
+	mmu.Write(t1+1, 0x60)
+	// Row 1: pixel 0=1 → lo bit 7=1
+	mmu.Write(t1+2, 0x80)
 	mmu.Write(t1+3, 0x00)
 	// Rows 2-7: all 0
 
@@ -139,7 +140,7 @@ func TestSpriteFlip(t *testing.T) {
 	writeTileToVRAM(mmu, 0, 0)
 	fillTileMap(mmu, 0x9800, 0x00)
 
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
 
 	// No flip: (10,10) = sprite pixel 0=1
@@ -188,7 +189,7 @@ func TestSpritePaletteOBP0(t *testing.T) {
 	// Set OBP0: pixel value 3 → shade 1 (0x40 = 01 00 00 00)
 	ppu.WriteRegister(0xFF48, 0x40) // pixel3→1, pixel2→0, pixel1→0, pixel0→0
 
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
 
 	assert.Equal(t, byte(1), s[10][10], "OBP0: shade 3 pixel → shade 1")
@@ -211,7 +212,7 @@ func TestSpritePaletteOBP1(t *testing.T) {
 	// Set OBP1 to map all pixels → shade 0
 	ppu.WriteRegister(0xFF49, 0x00)
 
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
 
 	assert.Equal(t, byte(0), s[10][10], "OBP1: shade 3 pixel → shade 0")
@@ -238,7 +239,7 @@ func TestSpriteSize8x16(t *testing.T) {
 	writeTileToVRAM(mmu, 0, 0)
 	fillTileMap(mmu, 0x9800, 0x00)
 
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
 
 	// Upper tile (rows 0-7 of sprite): shade 3
@@ -269,7 +270,7 @@ func TestSpriteVsBackgroundPriority(t *testing.T) {
 	writeTileToVRAM(mmu, 0, 0) // BG tile 0 = shade 0
 	fillTileMap(mmu, 0x9800, 0x00)
 
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
 
 	assert.Equal(t, byte(3), s[10][10], "prio bit set, BG=0 → sprite shows")
@@ -285,7 +286,7 @@ func TestSpriteVsBackgroundPriority(t *testing.T) {
 	writeSpriteOAM(mmu2, 0, 26, 18, 1, 0x80) // Y=10, X=10, behind BG
 	writeTileToVRAM(mmu2, 1, 3) // sprite tile = shade 3
 
-	ppu2.Step(FrameCycles)
+	ppu2.Step(2 * FrameCycles)
 	s2 := ppu2.GetScreen()
 
 	assert.Equal(t, byte(1), s2[10][10], "prio bit set, BG≠0 → BG shows")
@@ -301,7 +302,7 @@ func TestSpriteVsBackgroundPriority(t *testing.T) {
 	writeSpriteOAM(mmu3, 0, 26, 18, 1, 0x00) // Y=10, X=10, above BG
 	writeTileToVRAM(mmu3, 1, 3) // sprite tile = shade 3
 
-	ppu3.Step(FrameCycles)
+	ppu3.Step(2 * FrameCycles)
 	s3 := ppu3.GetScreen()
 
 	assert.Equal(t, byte(3), s3[10][10], "prio bit clear, BG≠0 → sprite shows")
@@ -326,7 +327,7 @@ func TestSpriteMax10PerLine(t *testing.T) {
 	writeTileToVRAM(mmu, 0, 0)
 	fillTileMap(mmu, 0x9800, 0x00)
 
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
 
 	// Sprites 0-9 should be visible (first 10)

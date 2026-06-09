@@ -41,6 +41,7 @@ func (m *testMMU) WriteIF(val byte)              { m.ifReg = val }
 func (m *testMMU) DMAStep(cycles int)            {}
 func (m *testMMU) SerialStep(cycles int)         {}
 func (m *testMMU) SetJoypadButtons(buttons byte) {}
+func (m *testMMU) StepDevices(cycles int)          {}
 
 func TestTimerDIVIncrement(t *testing.T) {
 	mmu := &testMMU{}

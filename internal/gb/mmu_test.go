@@ -180,10 +180,11 @@ func TestMMU_DefaultValues(t *testing.T) {
 // -- STAT blocking tests --
 
 // attachPPU creates a PPUCore, attaches it to the given MMU, and returns it.
-// The PPU is left in Mode 2 (OAM scan) after creation.
+// The PPU is left in Mode 2 (OAM scan) after creation with LCD enabled.
 func attachPPU(mmu *MemoryBus) *PPUCore {
 	ppu := NewPPU(mmu)
 	mmu.SetPPU(ppu)
+	ppu.WriteRegister(0xFF40, 0x91)
 	return ppu
 }
 
@@ -827,6 +828,7 @@ func TestOAMReadCorruption_GetOAMRow(t *testing.T) {
 	// Verify GetOAMRow returns correct row based on dotCounter
 	ppu := NewPPU(nil)
 	ppu.Reset()
+	ppu.WriteRegister(0xFF40, 0x91)
 
 	// After reset, dotCounter = 0, row = 0
 	assert.Equal(t, 0, ppu.GetOAMRow(), "GetOAMRow should be 0 after reset")

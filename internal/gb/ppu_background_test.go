@@ -52,6 +52,7 @@ func setupBasicBg(t *testing.T) (*PPUCore, *MemoryBus) {
 	ppu.Reset()
 	writeCheckerboardTile(mmu, 0)
 	fillTileMap(mmu, 0x9800, 0x00)
+	ppu.WriteRegister(0xFF40, 0x91)
 	return ppu, mmu
 }
 
@@ -62,9 +63,9 @@ func TestTileDataRead(t *testing.T) {
 	hi := mmu.Read(0x8001)
 	assert.Equal(t, byte(0x55), lo)
 	assert.Equal(t, byte(0x00), hi)
-	pixel0 := (hi&0x01)<<1 | (lo & 0x01)
-	assert.Equal(t, byte(1), pixel0)
-	ppu.Step(FrameCycles)
+	pixel0 := (hi>>7&1)<<1 | (lo >> 7 & 1)
+	assert.Equal(t, byte(0), pixel0)
+	ppu.Step(2 * FrameCycles)
 	screen := ppu.GetScreen()
 	require.NotNil(t, screen)
 	assert.Equal(t, 160, len(screen))
@@ -74,13 +75,13 @@ func TestTileDataRead(t *testing.T) {
 func TestBackgroundRender(t *testing.T) {
 	t.Parallel()
 	ppu, _ := setupBasicBg(t)
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
-	assert.Equal(t, byte(1), s[0][0], "p(0,0)")
-	assert.Equal(t, byte(0), s[1][0], "p(1,0)")
+	assert.Equal(t, byte(0), s[0][0], "p(0,0)")
+	assert.Equal(t, byte(1), s[1][0], "p(1,0)")
 	assert.Equal(t, s[0][0], s[8][0], "p(8,0)=p(0,0)")
-	assert.Equal(t, byte(0), s[0][1], "p(0,1)")
-	assert.Equal(t, byte(1), s[1][1], "p(1,1)")
+	assert.Equal(t, byte(1), s[0][1], "p(0,1)")
+	assert.Equal(t, byte(0), s[1][1], "p(1,1)")
 }
 
 func TestBackgroundRenderSolidTile(t *testing.T) {
@@ -90,7 +91,8 @@ func TestBackgroundRenderSolidTile(t *testing.T) {
 	ppu.Reset()
 	writeTileToVRAM(mmu, 0, 3)
 	fillTileMap(mmu, 0x9800, 0x00)
-	ppu.Step(FrameCycles)
+	ppu.WriteRegister(0xFF40, 0x91)
+	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
 	for x := 0; x < 160; x++ {
 		for y := 0; y < 144; y++ {
@@ -108,7 +110,8 @@ func TestBackgroundRenderTileMapAddressing(t *testing.T) {
 	fillTileMap(mmu, 0x9C00, 0x01)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
-	ppu.Step(FrameCycles)
+	ppu.WriteRegister(0xFF40, 0x91)
+	ppu.Step(2 * FrameCycles)
 	assert.Equal(t, byte(3), ppu.GetScreen()[0][0], "map 0x9800")
 	mmu2 := NewMMU(nil)
 	writeTileToVRAM(mmu2, 0, 3)
@@ -118,30 +121,35 @@ func TestBackgroundRenderTileMapAddressing(t *testing.T) {
 	ppu2 := NewPPU(mmu2)
 	ppu2.Reset()
 	ppu2.WriteRegister(0xFF40, 0x91|0x08)
-	ppu2.Step(FrameCycles)
+	ppu2.Step(2 * FrameCycles)
 	assert.Equal(t, byte(1), ppu2.GetScreen()[0][0], "map 0x9C00")
 }
 
 func TestBackgroundRenderTileDataAddressing(t *testing.T) {
 	t.Parallel()
+
+	// Signed mode: tile 0 should be at 0x9000.
 	mmu := NewMMU(nil)
-	writeTileToVRAM(mmu, 0, 3)
-	writeTileToVRAM(mmu, 128, 1)
+	// Write shade 3 tile data at 0x9000.
+	for row := 0; row < 8; row++ {
+		mmu.Write(0x9000+uint16(row*2), 0xFF)
+		mmu.Write(0x9000+uint16(row*2+1), 0xFF)
+	}
 	fillTileMap(mmu, 0x9800, 0x00)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
-	// Signed mode: LCDC bit 4 = 0. Default 0x91 has bit 4 set, so clear it.
-	ppu.WriteRegister(0xFF40, 0x81) // LCD enable + BG enable, bit 4 = 0
-	ppu.Step(FrameCycles)
-	assert.Equal(t, byte(1), ppu.GetScreen()[0][0], "signed mode")
+	ppu.WriteRegister(0xFF40, 0x81) // LCD enable + BG enable, bit 4 = 0 (signed)
+	ppu.Step(2 * FrameCycles)
+	assert.Equal(t, byte(3), ppu.GetScreen()[0][0], "signed mode")
+
+	// Unsigned mode: tile 0 should be at 0x8000.
 	mmu2 := NewMMU(nil)
 	writeTileToVRAM(mmu2, 0, 3)
-	writeTileToVRAM(mmu2, 128, 1)
 	fillTileMap(mmu2, 0x9800, 0x00)
 	ppu2 := NewPPU(mmu2)
 	ppu2.Reset()
-	// Default 0x91 already has bit 4 set = unsigned mode.
-	ppu2.Step(FrameCycles)
+	ppu2.WriteRegister(0xFF40, 0x91) // unsigned mode
+	ppu2.Step(2 * FrameCycles)
 	assert.Equal(t, byte(3), ppu2.GetScreen()[0][0], "unsigned mode")
 }
 
@@ -158,14 +166,15 @@ func TestSCYScroll(t *testing.T) {
 		fillTileMap(mmu, 0x9800, 0x00)
 		ppu := NewPPU(mmu)
 		ppu.Reset()
+		ppu.WriteRegister(0xFF40, 0x91)
 		return ppu
 	}
 	ppu := makePPU()
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	assert.Equal(t, byte(3), ppu.GetScreen()[0][0], "no scroll")
 	ppu2 := makePPU()
 	ppu2.WriteRegister(0xFF42, 1) // SCY = 1: shift by 1 pixel, tile row 1 is now at screen row 0
-	ppu2.Step(FrameCycles)
+	ppu2.Step(2 * FrameCycles)
 	assert.Equal(t, byte(0), ppu2.GetScreen()[0][0], "SCY=1")
 }
 
@@ -178,7 +187,8 @@ func TestSCXScroll(t *testing.T) {
 	mmu.Write(0x9801, 0x01)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
-	ppu.Step(FrameCycles)
+	ppu.WriteRegister(0xFF40, 0x91)
+	ppu.Step(2 * FrameCycles)
 	assert.Equal(t, byte(3), ppu.GetScreen()[0][0], "no SCX col0")
 	assert.Equal(t, byte(1), ppu.GetScreen()[8][0], "no SCX col8")
 	mmu2 := NewMMU(nil)
@@ -188,8 +198,9 @@ func TestSCXScroll(t *testing.T) {
 	mmu2.Write(0x9801, 0x01)
 	ppu2 := NewPPU(mmu2)
 	ppu2.Reset()
+	ppu2.WriteRegister(0xFF40, 0x91)
 	ppu2.WriteRegister(0xFF43, 8)
-	ppu2.Step(FrameCycles)
+	ppu2.Step(2 * FrameCycles)
 	assert.Equal(t, byte(1), ppu2.GetScreen()[0][0], "SCX=8")
 }
 
@@ -206,9 +217,10 @@ func TestSCYSCXCombined(t *testing.T) {
 	mmu.Write(0x9821, 0x03)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
+	ppu.WriteRegister(0xFF40, 0x91)
 	ppu.WriteRegister(0xFF42, 8)
 	ppu.WriteRegister(0xFF43, 8)
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	assert.Equal(t, byte(0), ppu.GetScreen()[0][0], "SCY=8,SCX=8")
 }
 
@@ -222,10 +234,10 @@ func TestWindowLayer(t *testing.T) {
 	mmu.Write(0x9C00, 0x01)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
-	ppu.WriteRegister(0xFF40, 0x91|0x20|0x40)
+	ppu.WriteRegister(0xFF40, 0x91|0x20|0x40) // LCD enable + BG enable + win enable + win tile map
 	ppu.WriteRegister(0xFF4A, 0)
 	ppu.WriteRegister(0xFF4B, 7)
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
 	assert.Equal(t, byte(3), s[0][0], "win(0,0)")
 	assert.Equal(t, byte(1), s[8][0], "win(8,0)")
@@ -240,10 +252,10 @@ func TestWindowLayerOff(t *testing.T) {
 	mmu.Write(0x9C00, 0x01)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
-	ppu.WriteRegister(0xFF40, 0x91|0x40)
+	ppu.WriteRegister(0xFF40, 0x91|0x40) // LCD enable + BG enable + win tile map, NO win enable
 	ppu.WriteRegister(0xFF4A, 0)
 	ppu.WriteRegister(0xFF4B, 7)
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	assert.Equal(t, byte(1), ppu.GetScreen()[0][0], "win off")
 }
 
@@ -254,15 +266,17 @@ func TestBackgroundPalette(t *testing.T) {
 	fillTileMap(mmu, 0x9800, 0x00)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
-	ppu.Step(FrameCycles)
+	ppu.WriteRegister(0xFF40, 0x91)
+	ppu.Step(2 * FrameCycles)
 	assert.Equal(t, byte(3), ppu.GetScreen()[0][0], "default BGP")
 	mmu2 := NewMMU(nil)
 	writeTileToVRAM(mmu2, 0, 3)
 	fillTileMap(mmu2, 0x9800, 0x00)
 	ppu2 := NewPPU(mmu2)
 	ppu2.Reset()
+	ppu2.WriteRegister(0xFF40, 0x91)
 	ppu2.WriteRegister(0xFF47, 0x00)
-	ppu2.Step(FrameCycles)
+	ppu2.Step(2 * FrameCycles)
 	assert.Equal(t, byte(0), ppu2.GetScreen()[0][0], "BGP=0")
 }
 
@@ -282,7 +296,7 @@ func TestWindowDisabledByLCDC0(t *testing.T) {
 	ppu.WriteRegister(0xFF40, 0xF0)
 	ppu.WriteRegister(0xFF4A, 0)  // WY = 0
 	ppu.WriteRegister(0xFF4B, 7)  // WX = 7
-	ppu.Step(FrameCycles)
+	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
 	// When LCDC bit 0 is 0, window should not be drawn even though bit 5 is set.
 	// Background rendering also fills with 0 when bit 0 is 0.
@@ -297,7 +311,7 @@ func TestBackgroundDisabled(t *testing.T) {
 	fillTileMap(mmu, 0x9800, 0x00)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
-	ppu.WriteRegister(0xFF40, 0x90)
-	ppu.Step(FrameCycles)
+	ppu.WriteRegister(0xFF40, 0x90) // LCD enable + BG tile data, NO BG/win enable
+	ppu.Step(2 * FrameCycles)
 	assert.Equal(t, byte(0), ppu.GetScreen()[0][0], "BG disabled")
 }

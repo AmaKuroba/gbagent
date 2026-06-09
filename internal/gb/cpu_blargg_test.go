@@ -113,13 +113,11 @@ func blarggSerialOutput(t *testing.T, romPath string, timeout time.Duration) str
 			}
 			mmu.Write(0xFF44, ly)
 
-			cycles, err := cpu.Step()
+			_, err := cpu.Step()
 			if err != nil {
 				done <- serialBuf.String()
 				return
 			}
-
-			timer.Step(cycles)
 
 			// --- Serial output ---
 			if sc := mmu.Read(0xFF02); sc&0x80 != 0 {
@@ -239,11 +237,10 @@ func TestDMGAcid2(t *testing.T) {
 	var lastVBlank uint64
 	for frame := 0; frame < targetFrames; frame++ {
 		for {
-			cpuCycles, err := cpu.Step()
+			_, err := cpu.Step()
 			if err != nil {
 				t.Fatalf("CPU error at frame %d, PC=0x%04X: %v", frame, cpu.PC, err)
 			}
-			ppu.Step(cpuCycles)
 			vOff := cpu.Cycles - lastVBlank
 			if vOff >= vblankCycles {
 				lastVBlank = cpu.Cycles

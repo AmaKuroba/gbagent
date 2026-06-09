@@ -23,6 +23,7 @@ func (b *busStub) WriteIF(val byte)                      {}
 func (b *busStub) SetJoypadButtons(buttons byte)          {}
 func (b *busStub) DMAStep(cycles int)                      {}
 func (b *busStub) SerialStep(cycles int)                    {}
+func (b *busStub) StepDevices(cycles int)                   {}
 
 func NewBusStub() *busStub { return &busStub{} }
 

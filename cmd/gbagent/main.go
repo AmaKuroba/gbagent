@@ -17,6 +17,8 @@ import (
 
 	"github.com/AmaKuroba/gbagent/dashboard"
 	"github.com/AmaKuroba/gbagent/internal/gb"
+	"github.com/AmaKuroba/gbagent/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // DMG classic green palette (4 shades).
@@ -84,7 +86,7 @@ func loadRAM(romPath string, cart gb.Cartridge) {
 	log.Printf("loaded battery-backed RAM from %s (%d bytes)", path, len(data))
 }
 
-func runServe(romPath string, port int) {
+func runServe(romPath string, port int, mcpPort int) {
 	// Load ROM
 	romData, err := os.ReadFile(romPath)
 	if err != nil {
@@ -105,6 +107,7 @@ func runServe(romPath string, port int) {
 	apu := gb.NewAPU(mmu)
 	mmu.SetAPU(apu)
 	cpu := gb.NewCPU(mmu)
+	mmu.SetCPU(cpu)
 
 	// Create and attach the joypad register handler
 	joypad := gb.NewJoypad(mmu)
@@ -129,8 +132,23 @@ func runServe(romPath string, port int) {
 		}
 	}()
 
+	// Create MCP bridge and SSE server.
+	bridge := newBridge(mmu, cpu, ppu, timer, apu, cart, romPath)
+
+	mcpServer := mcp.NewServer(bridge)
+	sseServer := server.NewSSEServer(
+		mcpServer.MCPServer(),
+		server.WithBaseURL(fmt.Sprintf("http://localhost:%d", mcpPort)),
+	)
+	go func() {
+		log.Printf("gbagent MCP server SSE: http://localhost:%d/sse", mcpPort)
+		if err := sseServer.Start(fmt.Sprintf(":%d", mcpPort)); err != nil {
+			log.Fatalf("MCP server error: %v", err)
+		}
+	}()
+
 	// Emulation loop at ~30fps
-	frameTicker := time.NewTicker(time.Second / 30)
+	frameTicker := time.NewTicker(time.Second / 60)
 	defer frameTicker.Stop()
 
 	sigCh := make(chan os.Signal, 1)
@@ -143,11 +161,15 @@ func runServe(romPath string, port int) {
 			log.Println("gbagent: shutting down")
 			return
 		case <-frameTicker.C:
+			// Process pending MCP commands before this frame.
+			bridge.processPending()
+
 			// Push current joypad state into the emulator's MMU so the
 			// game reads the pressed buttons via I/O register 0xFF00.
 			mmu.SetJoypadButtons(srv.Joypad().State())
 
 			// Step one full frame (70224 T-cycles).
+			// Device stepping is handled internally by M-cycle stepping in cpu.Step().
 			var cyclesThisFrame int
 			for cyclesThisFrame < 70224 {
 				cycles, err := cpu.Step()
@@ -155,11 +177,6 @@ func runServe(romPath string, port int) {
 					log.Printf("cpu error: %v", err)
 					return
 				}
-				ppu.Step(cycles)
-				timer.Step(cycles)
-				apu.Step(cycles)
-				mmu.DMAStep(cycles)
-				mmu.SerialStep(cycles)
 				cyclesThisFrame += cycles
 			}
 
@@ -209,13 +226,14 @@ func main() {
 		serveCmd := flag.NewFlagSet("serve", flag.ExitOnError)
 		romPath := serveCmd.String("rom", "", "Path to Game Boy ROM file (required)")
 		port := serveCmd.Int("port", 8765, "Dashboard HTTP server port")
+		mcpPort := serveCmd.Int("mcp-port", 8766, "MCP SSE server port")
 		serveCmd.Parse(os.Args[2:])
 
 		if *romPath == "" {
-			fmt.Fprintf(os.Stderr, "Usage: gbagent serve --rom <rom.gb> [--port 8765]\n")
+			fmt.Fprintf(os.Stderr, "Usage: gbagent serve --rom <rom.gb> [--port 8765] [--mcp-port 8766]\n")
 			os.Exit(1)
 		}
-		runServe(*romPath, *port)
+		runServe(*romPath, *port, *mcpPort)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %q\n\nUsage: gbagent <command> [flags]\n\nCommands:\n  serve   Start the dashboard server with emulation\n\n", os.Args[1])

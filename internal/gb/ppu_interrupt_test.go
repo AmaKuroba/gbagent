@@ -12,6 +12,7 @@ func TestPPUVBlankSetsIF(t *testing.T) {
 	mmu := NewMMU(nil)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
+	ppu.WriteRegister(0xFF40, 0x91)
 
 	// Run through all visible scanlines (144 * 456 = 65664 cycles).
 	// After this, LY should be 144.
@@ -27,6 +28,7 @@ func TestPPUVBlankNoFalseTrigger(t *testing.T) {
 	mmu := NewMMU(nil)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
+	ppu.WriteRegister(0xFF40, 0x91)
 
 	// Clear any spurious IF bits
 	mmu.Write(0xFF0F, 0x00)
@@ -57,6 +59,7 @@ func TestPPUSTATInterrupt_LYCCoincidence(t *testing.T) {
 	mmu := NewMMU(nil)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
+	ppu.WriteRegister(0xFF40, 0x91)
 
 	mmu.Write(0xFF0F, 0x00) // clear IF
 
@@ -78,6 +81,7 @@ func TestPPUSTATInterrupt_OAM(t *testing.T) {
 	mmu := NewMMU(nil)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
+	ppu.WriteRegister(0xFF40, 0x91)
 
 	mmu.Write(0xFF0F, 0x00) // clear IF
 
@@ -99,6 +103,7 @@ func TestPPUSTATInterrupt_HBlank(t *testing.T) {
 	mmu := NewMMU(nil)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
+	ppu.WriteRegister(0xFF40, 0x91)
 
 	mmu.Write(0xFF0F, 0x00) // clear IF
 
@@ -118,6 +123,7 @@ func TestPPUFullFrameInterrupts(t *testing.T) {
 	mmu := NewMMU(nil)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
+	ppu.WriteRegister(0xFF40, 0x91)
 
 	mmu.Write(0xFF0F, 0x00) // clear IF
 

@@ -43,6 +43,10 @@ type MemoryBus struct {
 	// Serial transfer state (0xFF01-0xFF02)
 	serialCycles int  // T-cycles remaining in current serial transfer
 	serialActive bool // true while serial transfer is in progress
+
+	// CPU reference for T-cycle accurate PPU/Timer catch-up
+	cpuRef      *Core
+	lastPPUCycle uint64
 }
 
 // NewMMU creates a new MemoryBus with the given cartridge.
@@ -71,6 +75,24 @@ func (m *MemoryBus) SetJoypad(j *Joypad) {
 // at 0xFF10-0xFF26 and 0xFF30-0xFF3F.
 func (m *MemoryBus) SetAPU(apu *APU) {
 	m.apu = apu
+}
+
+// SetCPU attaches a CPU reference to the memory bus for cycle tracking.
+func (m *MemoryBus) SetCPU(cpu *Core) {
+	m.cpuRef = cpu
+}
+
+// CatchUpPPU advances the PPU to match the current CPU cycle count.
+// This ensures PPU state (like LY) is current before PPU register accesses.
+func (m *MemoryBus) CatchUpPPU() {
+	if m.ppu == nil || m.cpuRef == nil {
+		return
+	}
+	delta := m.cpuRef.Cycles - m.lastPPUCycle
+	if delta > 0 {
+		m.ppu.Step(int(delta))
+		m.lastPPUCycle = m.cpuRef.Cycles
+	}
 }
 
 // SetJoypadButtons sets the active-high button state on the joypad handler.
@@ -159,7 +181,8 @@ func (m *MemoryBus) Read(addr uint16) byte {
 		}
 		// LCD registers (0xFF40-0xFF4B) are routed to the PPU
 		if addr >= 0xFF40 && addr <= 0xFF4B && m.ppu != nil {
-			return m.ppu.ReadRegister(addr)
+		m.CatchUpPPU()
+		return m.ppu.ReadRegister(addr)
 		}
 		// Return 0xFF for unmapped IO registers (open bus behavior on DMG).
 		// KEY1 (0xFF4D) is not mapped on DMG — games read it via the
@@ -278,6 +301,7 @@ func (m *MemoryBus) Write(addr uint16, val byte) {
 		}
 		// LCD registers (0xFF40-0xFF4B) are routed to the PPU
 		if addr >= 0xFF40 && addr <= 0xFF4B && m.ppu != nil {
+			m.CatchUpPPU()
 			m.ppu.WriteRegister(addr, val)
 			return
 		}
@@ -417,6 +441,13 @@ func (m *MemoryBus) WriteOAMDirect(addr uint16, val byte) {
 	m.oam[addr-0xFE00] = val
 }
 
+// ReadVRAMDirect reads a byte from VRAM (0x8000-0x9FFF) bypassing the PPU
+// mode check that would otherwise return 0xFF during mode 3 (VRAM draw).
+// The PPU must use this when decoding tile data during rendering.
+func (m *MemoryBus) ReadVRAMDirect(addr uint16) byte {
+	return m.vram[addr-0x8000]
+}
+
 // SerialStep advances the serial transfer by the given number of T-cycles.
 // In master mode, a transfer takes 4096 T-cycles to shift 8 bits serially.
 // On completion: SB is shifted right by 1 (bit 0 transmitted), bit 7 is set
@@ -509,6 +540,22 @@ func (m *MemoryBus) LoadBootROM(data []byte) {
 	}
 	copy(m.bootROM[:], data)
 	m.bootROMEnabled = true
+}
+
+// StepDevices advances all emulated devices (PPU, Timer, APU, DMA, Serial)
+// by the given number of T-cycles. Called by Core.stepDevices after each M-cycle.
+// cpuRef.Cycles must have been incremented before this call so CatchUpPPU's
+// delta tracking works correctly.
+func (m *MemoryBus) StepDevices(cycles int) {
+	m.CatchUpPPU()
+	if m.timer != nil {
+		m.timer.Step(cycles)
+	}
+	if m.apu != nil {
+		m.apu.Step(cycles)
+	}
+	m.DMAStep(cycles)
+	m.SerialStep(cycles)
 }
 
 // romOnlyCartridge is a minimal cartridge that maps ROM at 0x0000-0x7FFF.

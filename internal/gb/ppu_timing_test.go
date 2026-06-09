@@ -37,6 +37,14 @@ type testPPU struct{ PPU }
 // newTestPPU must be replaced with the real constructor once available.
 // func newTestPPU() PPU { return &PPUCore{...} }
 
+// enabledPPU creates a PPU and enables LCD, for tests that need it.
+func enabledPPU() *PPUCore {
+	ppu := NewPPU(nil)
+	ppu.Reset()
+	ppu.WriteRegister(0xFF40, 0x91)
+	return ppu
+}
+
 // --- Mode sequence per scanline ---
 
 func TestPPUModeSequence_OAMtoVRAMtoHBlank(t *testing.T) {
@@ -50,6 +58,7 @@ func TestPPUModeSequence_OAMtoVRAMtoHBlank(t *testing.T) {
 
 	ppu := NewPPU(nil)
 	ppu.Reset()
+	ppu.WriteRegister(0xFF40, 0x91)
 
 	// Initially at start of frame, LY=0, we should be in OAM search.
 	state := ppu.GetState()
@@ -79,6 +88,7 @@ func TestPPUModeSequence_AllLines(t *testing.T) {
 	// Verify every visible scanline follows OAM→VRAM→HBlank.
 	ppu := NewPPU(nil)
 	ppu.Reset()
+	ppu.WriteRegister(0xFF40, 0x91)
 
 	for ly := 0; ly < VisibleScanlines; ly++ {
 		// Initial state should be OAM for visible lines.
@@ -106,8 +116,7 @@ func TestPPUModeSequence_AllLines(t *testing.T) {
 func TestPPUVBlankDuration(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU(nil)
-	ppu.Reset()
+	ppu := enabledPPU()
 
 	// Run through 144 visible scanlines.
 	ppu.Step(VisibleScanlines * ScanlineCycles)
@@ -137,8 +146,7 @@ func TestPPUVBlankExactCycleCount(t *testing.T) {
 	t.Parallel()
 
 	// VBlank should be exactly 4560 dots (10 scanlines * 456).
-	ppu := NewPPU(nil)
-	ppu.Reset()
+	ppu := enabledPPU()
 
 	// Advance through all visible lines.
 	ppu.Step(VisibleScanlines * ScanlineCycles)
@@ -162,8 +170,7 @@ func TestPPUVBlankExactCycleCount(t *testing.T) {
 func TestPPULYIncrement(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU(nil)
-	ppu.Reset()
+	ppu := enabledPPU()
 
 	for expectedLY := 0; expectedLY < TotalScanlines; expectedLY++ {
 		state := ppu.GetState()
@@ -183,8 +190,7 @@ func TestPPULYIncrement_PartialSteps(t *testing.T) {
 
 	// LY must increment correctly even when Step is called with
 	// partial scanline amounts.
-	ppu := NewPPU(nil)
-	ppu.Reset()
+	ppu := enabledPPU()
 
 	// Step 100 cycles at a time and verify LY.
 	for frameLY := 0; frameLY < TotalScanlines; frameLY++ {
@@ -212,8 +218,7 @@ func TestPPULYIncrement_PartialSteps(t *testing.T) {
 func TestPPULYEqualsLYC_Coincidence(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU(nil)
-	ppu.Reset()
+	ppu := enabledPPU()
 
 	// Test with LYC=5.
 	ppu.SetLYC(5)
@@ -229,8 +234,7 @@ func TestPPULYEqualsLYC_Coincidence(t *testing.T) {
 func TestPPULYEqualsLYC_NoCoincidence(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU(nil)
-	ppu.Reset()
+	ppu := enabledPPU()
 
 	// Default LYC=0, LY starts at 0 — so LY==LYC initially.
 	ppu.Step(ScanlineCycles) // move to line 1
@@ -243,8 +247,7 @@ func TestPPULYEqualsLYC_NoCoincidence(t *testing.T) {
 func TestPPULYEqualsLYC_DifferentLYC(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU(nil)
-	ppu.Reset()
+	ppu := enabledPPU()
 
 	ppu.SetLYC(10)
 
@@ -261,8 +264,7 @@ func TestPPULYEqualsLYC_DifferentLYC(t *testing.T) {
 func TestPPUFrameDuration(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU(nil)
-	ppu.Reset()
+	ppu := enabledPPU()
 
 	// Step exactly FrameCycles and verify we're back at the start.
 	ppu.Step(FrameCycles)
@@ -274,8 +276,7 @@ func TestPPUFrameDuration(t *testing.T) {
 func TestPPUFrameDuration_ExactBoundary(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU(nil)
-	ppu.Reset()
+	ppu := enabledPPU()
 
 	// FrameCycles-1 should still be on the last scanline.
 	ppu.Step(FrameCycles - 1)
@@ -369,6 +370,7 @@ func TestPPU_STATWriteTriggersHBlankInterrupt(t *testing.T) {
 	mmu := NewMMU(nil)
 	ppu := NewPPU(mmu)
 	ppu.Reset()
+	ppu.WriteRegister(0xFF40, 0x91)
 
 	// Step through OAM + VRAM to reach HBlank (mode 0) on scanline 0.
 	ppu.Step(oamSearchCycles + vramDrawCycles) // 80 + 172 = 252 cycles
@@ -535,10 +537,9 @@ func TestPPUFirstFrameBlankIsRunningDuringBlank(t *testing.T) {
 func TestPPULYZeroWhenLCDOff(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU(nil)
-	ppu.Reset()
+	ppu := enabledPPU()
 
-	// LCD starts enabled. Turn it off.
+	// LCD was enabled in enabledPPU. Turn it off.
 	ppu.WriteRegister(0xFF40, 0x00)
 
 	state := ppu.GetState()
@@ -548,8 +549,7 @@ func TestPPULYZeroWhenLCDOff(t *testing.T) {
 func TestPPULYStaysZeroDuringLCDOff(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU(nil)
-	ppu.Reset()
+	ppu := enabledPPU()
 
 	// Run a few scanlines so LY advances.
 	ppu.Step(ScanlineCycles * 10) // LY should be 10
@@ -574,8 +574,7 @@ func TestPPULYStaysZeroDuringLCDOff(t *testing.T) {
 func TestPPULYResumesFromZeroAfterLCDReEnable(t *testing.T) {
 	t.Parallel()
 
-	ppu := NewPPU(nil)
-	ppu.Reset()
+	ppu := enabledPPU()
 
 	// Run a bit so LY is non-zero.
 	ppu.Step(ScanlineCycles * 50) // LY = 50

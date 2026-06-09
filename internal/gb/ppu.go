@@ -116,7 +116,7 @@ var _ PPU = (*PPUCore)(nil)
 func NewPPU(mmu MMU) *PPUCore {
 	ppu := &PPUCore{
 		mmu:  mmu,
-		lcdc: 0x91,
+		lcdc: 0x00,
 		bgp:  0xE4,
 		obp0: 0xE4,
 		obp1: 0xE4,
@@ -285,16 +285,17 @@ func (p *PPUCore) tileDataAddress(tileIndex byte) uint16 {
 	if p.lcdc&lcdcBitBGTileData != 0 {
 		return 0x8000 + uint16(tileIndex)*16
 	}
-	return 0x8800 + uint16(int8(tileIndex))*16
+	return 0x9000 + uint16(int8(tileIndex))*16
 }
 
 func (p *PPUCore) decodeTileRow(tileAddr uint16, row int) [8]byte {
-	lo := p.mmu.Read(tileAddr + uint16(row*2))
-	hi := p.mmu.Read(tileAddr + uint16(row*2+1))
+	bus := p.mmu.(*MemoryBus)
+	lo := bus.ReadVRAMDirect(tileAddr + uint16(row*2))
+	hi := bus.ReadVRAMDirect(tileAddr + uint16(row*2+1))
 	var pixels [8]byte
 	for i := 0; i < 8; i++ {
-		lowBit := (lo >> i) & 1
-		highBit := (hi >> i) & 1
+		lowBit := (lo >> (7 - i)) & 1
+		highBit := (hi >> (7 - i)) & 1
 		pixels[i] = (highBit << 1) | lowBit
 	}
 	return pixels
@@ -320,7 +321,8 @@ func (p *PPUCore) renderBackgroundScanline() {
 		tileMapX := (x + scrollX) / 8
 		tileMapY := (y + scrollY) / 8
 		tileMapAddr := mapBase + uint16((tileMapY%32)*32+(tileMapX%32))
-		tileIndex := p.mmu.Read(tileMapAddr)
+		bus := p.mmu.(*MemoryBus)
+		tileIndex := bus.ReadVRAMDirect(tileMapAddr)
 		tileAddr := p.tileDataAddress(tileIndex)
 		tileRow := (y + scrollY) % 8
 		pixels := p.decodeTileRow(tileAddr, tileRow)
@@ -362,7 +364,8 @@ func (p *PPUCore) renderWindowScanline() {
 		windowTileX := winPixelX / 8
 		windowColInTile := winPixelX % 8
 		tileMapAddr := winMapBase + uint16((windowTileY%32)*32+(windowTileX%32))
-		tileIndex := p.mmu.Read(tileMapAddr)
+		bus := p.mmu.(*MemoryBus)
+		tileIndex := bus.ReadVRAMDirect(tileMapAddr)
 		tileAddr := p.tileDataAddress(tileIndex)
 		pixels := p.decodeTileRow(tileAddr, windowRowInTile)
 		p.screen[x][y] = p.applyPalette(pixels[windowColInTile], p.bgp)
@@ -457,11 +460,12 @@ func (p *PPUCore) renderSprites() {
 				}
 			}
 
-			// Fetch pixel value from tile data.
+			// Fetch pixel value from tile data using direct VRAM read.
+			bus := p.mmu.(*MemoryBus)
 			tileAddr := uint16(0x8000) + uint16(tileIndex)*16 + uint16(rowInTile)*2
-			lo := p.mmu.Read(tileAddr)
-			hi := p.mmu.Read(tileAddr + 1)
-			pixel := ((hi>>uint(spritePixelX))&1)<<1 | ((lo >> uint(spritePixelX)) & 1)
+			lo := bus.ReadVRAMDirect(tileAddr)
+			hi := bus.ReadVRAMDirect(tileAddr + 1)
+			pixel := ((hi>>(7-uint(spritePixelX)))&1)<<1 | ((lo >> (7 - uint(spritePixelX))) & 1)
 
 			if pixel == 0 {
 				continue // Transparent pixel

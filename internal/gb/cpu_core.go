@@ -17,11 +17,6 @@ type Core struct {
 
 	// Memory bus (interface)
 	MMU MMU
-
-	// Deferred memory write for cycle-accurate timing
-	pendWrit bool
-	pendAddr uint16
-	pendData byte
 }
 
 var _ CPU = (*Core)(nil)
@@ -89,11 +84,15 @@ func (c *Core) fetch16() uint16 {
 	return uint16(lo) | uint16(hi)<<8
 }
 
+// push16 writes val to the stack and decrements SP by 2.
+// Does NOT call stepDevices — callers handle M-cycle stepping.
 func (c *Core) push16(val uint16) {
 	c.SP -= 2
 	c.MMU.Write16(c.SP, val)
 }
 
+// pop16 reads a 16-bit value from the stack and increments SP by 2.
+// Does NOT call stepDevices — callers handle M-cycle stepping.
 func (c *Core) pop16() uint16 {
 	v := c.MMU.Read16(c.SP)
 	c.SP += 2
@@ -214,19 +213,12 @@ func (c *Core) dec8(val byte) byte {
 	return r
 }
 
-// schedWrite schedules a memory write to be performed AFTER the handler returns.
-func (c *Core) schedWrite(addr uint16, val byte) {
-	c.pendWrit = true
-	c.pendAddr = addr
-	c.pendData = val
-}
-
-// execPend performs any deferred memory write.
-func (c *Core) execPend() {
-	if c.pendWrit {
-		c.MMU.Write(c.pendAddr, c.pendData)
-		c.pendWrit = false
-	}
+// stepDevices advances all devices by the given T-cycles and increments the
+// CPU cycle counter. Called after each M-cycle (4 T-cycles) so that PPU, timer,
+// APU, DMA, and serial are interleaved correctly with instruction execution.
+func (c *Core) stepDevices(cycles int) {
+	c.Cycles += uint64(cycles)
+	c.MMU.StepDevices(cycles)
 }
 
 func (c *Core) addHL(val uint16) {
@@ -239,40 +231,39 @@ func (c *Core) addHL(val uint16) {
 
 func (c *Core) Step() (int, error) {
 	if c.serveInterrupt() {
+		c.stepDevices(20)
 		return 20, nil
 	}
 	if c.Halted {
-		c.Cycles += 4
+		c.stepDevices(4)
 		if (c.MMU.Read(0xFF0F)&c.MMU.Read(0xFFFF)) != 0 {
 			c.Halted = false
 		}
 		return 4, nil
 	}
 	if c.Stopped {
-		c.Cycles += 4
+		c.stepDevices(4)
 		if (c.MMU.Read(0xFF0F)&c.MMU.Read(0xFFFF)) != 0 {
 			c.Stopped = false
 		}
 		return 4, nil
 	}
 	opcode := c.fetch8()
-	// HALT bug: the instruction after HALT is executed a second time
-	// because the opcode fetch's PC increment was suppressed.
-	// Execute the handler now but restore PC so the next Step()
-	// re-fetches the same opcode.
+
+	// HALT bug: the opcode fetch's PC increment was suppressed, causing the
+	// instruction after HALT to be fetched and executed a second time.
+	// Fetch the byte, undo the increment, execute, then restore PC.
 	if c.HaltBug {
 		c.HaltBug = false
 		c.PC-- // undo fetch8 increment
 		savedPC := c.PC
+		c.stepDevices(4) // M1: opcode fetch cycle
 		h := mainHandler[opcode]
 		if h == nil {
-			c.Cycles += 4
 			return 4, nil
 		}
 		cycles, err := h(c)
-		c.execPend()
 		c.PC = savedPC // restore so next fetch re-reads same opcode
-		c.Cycles += uint64(cycles)
 
 		if c.IMEScheduled == 2 {
 			c.IMEScheduled = 1
@@ -282,18 +273,15 @@ func (c *Core) Step() (int, error) {
 		}
 		return cycles, err
 	}
+
+	c.stepDevices(4) // M1: opcode fetch cycle (4 T-cycles)
 	h := mainHandler[opcode]
 	if h == nil {
-		c.Cycles += 4
 		return 4, nil
 	}
 	cycles, err := h(c)
-	c.execPend()
-	c.Cycles += uint64(cycles)
 
 	// Handle EI delay (after instruction execution, not during EI's own step)
-	// IMEScheduled=2 after EI, becomes 1 at end of EI's step,
-	// becomes 0 at end of next instruction, then IME becomes true.
 	if c.IMEScheduled == 2 {
 		c.IMEScheduled = 1
 	} else if c.IMEScheduled == 1 {
@@ -329,7 +317,6 @@ func (c *Core) serveInterrupt() bool {
 	c.PC = vector
 	c.MMU.Write(0xFF0F, req & ^bit)
 	c.Halted = false
-	c.Cycles += 20
 	return true
 }
 

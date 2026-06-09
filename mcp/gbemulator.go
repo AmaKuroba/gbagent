@@ -62,6 +62,7 @@ func NewGBEmulator(romPath string) (*GBEmulator, error) {
 	joypad := gb.NewJoypad(mmu)
 	apu := gb.NewAPU(mmu)
 	cpu := gb.NewCore(mmu)
+	mmu.SetCPU(cpu)
 
 	// Attach peripherals to the memory bus.
 	mmu.SetPPU(ppu)
@@ -79,16 +80,13 @@ func NewGBEmulator(romPath string) (*GBEmulator, error) {
 	}, nil
 }
 
-// runFrame runs one full frame (70224 T-cycles) of the CPU, PPU, and Timer.
+// runFrame runs one full frame (70224 T-cycles) of the emulator.
+// Device stepping (PPU, timer, APU, DMA, serial) is handled internally
+// by M-cycle stepping in cpu.Step().
 func (e *GBEmulator) runFrame() {
 	target := e.cpu.Cycles + 70224
 	for e.cpu.Cycles < target {
-		cycles, _ := e.cpu.Step()
-		e.ppu.Step(cycles)
-		e.timer.Step(cycles)
-		e.apu.Step(cycles)
-		e.mmu.DMAStep(cycles)
-		e.mmu.SerialStep(cycles)
+		e.cpu.Step()
 	}
 }
 
@@ -110,12 +108,7 @@ func (e *GBEmulator) PressButton(button string) error {
 
 	// Run a few cycles so the game detects the button press.
 	for i := 0; i < 4; i++ {
-		cycles, _ := e.cpu.Step()
-		e.ppu.Step(cycles)
-		e.timer.Step(cycles)
-		e.apu.Step(cycles)
-		e.mmu.DMAStep(cycles)
-		e.mmu.SerialStep(cycles)
+		e.cpu.Step()
 	}
 
 	// Release the button.
@@ -123,12 +116,7 @@ func (e *GBEmulator) PressButton(button string) error {
 
 	// Run a few more cycles after release for debounce.
 	for i := 0; i < 4; i++ {
-		cycles, _ := e.cpu.Step()
-		e.ppu.Step(cycles)
-		e.timer.Step(cycles)
-		e.apu.Step(cycles)
-		e.mmu.DMAStep(cycles)
-		e.mmu.SerialStep(cycles)
+		e.cpu.Step()
 	}
 
 	return nil

@@ -14,4 +14,5 @@ type MMU interface {
 	SetJoypadButtons(buttons byte)
 	DMAStep(cycles int)
 	SerialStep(cycles int)
+	StepDevices(cycles int)
 }

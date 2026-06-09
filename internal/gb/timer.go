@@ -21,11 +21,11 @@ type Timer struct {
 	TMA  byte // 0xFF06
 	TAC  byte // 0xFF07
 
-	// Internal 16-bit cycle counters.
+	// Internal 64-bit cycle counters (must not overflow — a frame is ~70k cycles).
 	// divCycles counts toward DIV increments (free-running, every 256 cycles).
 	// timaCycles counts toward TIMA increments (only when TAC bit 2 is set).
-	divCycles  uint16
-	timaCycles uint16
+	divCycles  uint64
+	timaCycles uint64
 
 	// mmu for requesting interrupts (set on TIMA overflow)
 	mmu MMU
@@ -48,7 +48,7 @@ func (t *Timer) Step(cycles int) {
 	}
 
 	// --- DIV: free-running, always increments ---
-	t.divCycles += uint16(cycles)
+	t.divCycles += uint64(cycles)
 	for t.divCycles >= 256 {
 		t.divCycles -= 256
 		t.DIV++ // wraps naturally
@@ -59,8 +59,8 @@ func (t *Timer) Step(cycles int) {
 		return
 	}
 
-	threshold := t.timaThreshold()
-	t.timaCycles += uint16(cycles)
+	threshold := uint64(t.timaThreshold())
+	t.timaCycles += uint64(cycles)
 
 	for t.timaCycles >= threshold {
 		t.timaCycles -= threshold

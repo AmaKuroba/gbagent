@@ -42,6 +42,7 @@ func (m *joypadTestMMU) WriteIF(val byte)                 { m.ifReg = val }
 func (m *joypadTestMMU) DMAStep(cycles int)               {}
 func (m *joypadTestMMU) SerialStep(cycles int)            {}
 func (m *joypadTestMMU) SetJoypadButtons(buttons byte)    {}
+func (m *joypadTestMMU) StepDevices(cycles int)            {}
 
 // ---------------------------------------------------------------------------
 // Joypad interrupt tests
