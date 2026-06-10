@@ -2,57 +2,24 @@ package gb
 
 // MemoryBus implements the MMU interface with the full Game Boy memory map.
 type MemoryBus struct {
-	// Cartridge is the attached ROM cartridge.
+	*MemoryState
 	Cartridge Cartridge
 
-	// Internal RAM regions
-	vram  [0x2000]byte // 0x8000-0x9FFF
-	wram  [0x2000]byte // 0xC000-0xDFFF
-	oam   [0xA0]byte   // 0xFE00-0xFE9F
-	hram  [0x7F]byte   // 0xFF80-0xFFFE
-	io    [0x80]byte   // 0xFF00-0xFF7F IO registers
-
-	// IE register at 0xFFFF
-	ie byte
-
-	// Serial port registers
-	sb byte // 0xFF01 — Serial transfer data
-	sc byte // 0xFF02 — Serial control
-
-	// PPU reference for register routing
-	ppu *PPUCore
-
-	// Timer reference for register routing
-	timer *Timer
-
-	// Joypad reference for 0xFF00 register routing
+	// Peripheral references
+	ppu    *PPUCore
+	timer  *Timer
 	joypad *Joypad
+	apu    *APU
+	cpuRef *Core
 
-	// APU reference for audio register routing (0xFF10-0xFF26, 0xFF30-0xFF3F)
-	apu *APU
-
-	// Boot ROM data and state
-	bootROM        [256]byte
-	bootROMEnabled bool
-
-	// OAM DMA state (0xFF46)
-	dmaActive    bool
-	dmaSource    uint16 // source address base (val << 8)
-	dmaRemaining int    // T-cycles remaining
-
-	// Serial transfer state (0xFF01-0xFF02)
-	serialCycles int  // T-cycles remaining in current serial transfer
-	serialActive bool // true while serial transfer is in progress
-
-	// CPU reference for T-cycle accurate PPU/Timer catch-up
-	cpuRef      *Core
 	lastPPUCycle uint64
 }
 
 // NewMMU creates a new MemoryBus with the given cartridge.
 func NewMMU(cartridge Cartridge) *MemoryBus {
 	return &MemoryBus{
-		Cartridge: cartridge,
+		MemoryState: &MemoryState{},
+		Cartridge:   cartridge,
 	}
 }
 
@@ -107,14 +74,14 @@ func (m *MemoryBus) SetJoypadButtons(buttons byte) {
 // All other accesses return 0xFF until DMA completes.
 func (m *MemoryBus) Read(addr uint16) byte {
 	// During OAM DMA, only HRAM is accessible; other reads return 0xFF.
-	if m.dmaActive && (addr < 0xFF80 || addr > 0xFFFE) {
+	if m.DMA.Active && (addr < 0xFF80 || addr > 0xFFFE) {
 		return 0xFF
 	}
 
 	switch {
 	case addr <= 0x7FFF:
-		if addr <= 0x00FF && m.bootROMEnabled {
-			return m.bootROM[addr]
+		if addr <= 0x00FF && m.BootROMEnabled {
+			return m.BootROM[addr]
 		}
 		if m.Cartridge != nil {
 			return m.Cartridge.Read(addr)
@@ -124,16 +91,16 @@ func (m *MemoryBus) Read(addr uint16) byte {
 		if m.ppu != nil && m.ppu.GetMode() == ppuModeVRAM {
 			return 0xFF
 		}
-		return m.vram[addr-0x8000]
+		return m.VRAM[addr-0x8000]
 	case addr >= 0xA000 && addr <= 0xBFFF:
 		if m.Cartridge != nil {
 			return m.Cartridge.Read(addr)
 		}
 		return 0xFF
 	case addr >= 0xC000 && addr <= 0xDFFF:
-		return m.wram[addr-0xC000]
+		return m.WRAM[addr-0xC000]
 	case addr >= 0xE000 && addr <= 0xFDFF:
-		return m.wram[(addr-0xE000)&0x1FFF]
+		return m.WRAM[(addr-0xE000)&0x1FFF]
 	case addr >= 0xFE00 && addr <= 0xFE9F:
 		return m.readOAM(addr)
 	case addr >= 0xFEA0 && addr <= 0xFEFF:
@@ -141,9 +108,9 @@ func (m *MemoryBus) Read(addr uint16) byte {
 	case addr >= 0xFF00 && addr <= 0xFF7F:
 		return m.readIO(addr)
 	case addr >= 0xFF80 && addr <= 0xFFFE:
-		return m.hram[addr-0xFF80]
+		return m.HRAM[addr-0xFF80]
 	case addr == 0xFFFF:
-		return m.ie
+		return m.IE
 	default:
 		return 0xFF
 	}
@@ -154,13 +121,13 @@ func (m *MemoryBus) readOAM(addr uint16) byte {
 	if m.ppu != nil && m.ppu.GetMode() == ppuModeOAM {
 		row := m.ppu.GetOAMRow()
 		if row > 0 {
-			applyOAMReadCorruption(m.oam[:], row)
-			return m.oam[addr-0xFE00]
+			applyOAMReadCorruption(m.OAM[:], row)
+			return m.OAM[addr-0xFE00]
 		}
 	} else if m.ppu != nil && m.ppu.GetMode() == ppuModeVRAM {
 		return 0xFF
 	}
-	return m.oam[addr-0xFE00]
+	return m.OAM[addr-0xFE00]
 }
 
 // readIO handles reads from the IO register range (0xFF00-0xFF7F).
@@ -170,9 +137,9 @@ func (m *MemoryBus) readIO(addr uint16) byte {
 	}
 	switch addr {
 	case 0xFF01:
-		return m.sb
+		return m.SB
 	case 0xFF02:
-		return m.sc
+		return m.SC
 	}
 	if addr >= 0xFF04 && addr <= 0xFF07 && m.timer != nil {
 		return m.timer.ReadRegister(addr)
@@ -184,7 +151,7 @@ func (m *MemoryBus) readIO(addr uint16) byte {
 		m.CatchUpPPU()
 		return m.ppu.ReadRegister(addr)
 	}
-	v := m.io[addr-0xFF00]
+	v := m.IO[addr-0xFF00]
 	if v != 0 {
 		return v
 	}
@@ -203,7 +170,7 @@ func (m *MemoryBus) readIO(addr uint16) byte {
 // During OAM DMA, only HRAM (0xFF80-0xFFFE) is accessible.
 func (m *MemoryBus) Write(addr uint16, val byte) {
 	// During OAM DMA, only HRAM is accessible; other writes are ignored.
-	if m.dmaActive && (addr < 0xFF80 || addr > 0xFFFE) {
+	if m.DMA.Active && (addr < 0xFF80 || addr > 0xFFFE) {
 		return
 	}
 
@@ -216,15 +183,15 @@ func (m *MemoryBus) Write(addr uint16, val byte) {
 		if m.ppu != nil && m.ppu.GetMode() == ppuModeVRAM {
 			return
 		}
-		m.vram[addr-0x8000] = val
+		m.VRAM[addr-0x8000] = val
 	case addr >= 0xA000 && addr <= 0xBFFF:
 		if m.Cartridge != nil {
 			m.Cartridge.Write(addr, val)
 		}
 	case addr >= 0xC000 && addr <= 0xDFFF:
-		m.wram[addr-0xC000] = val
+		m.WRAM[addr-0xC000] = val
 	case addr >= 0xE000 && addr <= 0xFDFF:
-		m.wram[(addr-0xE000)&0x1FFF] = val
+		m.WRAM[(addr-0xE000)&0x1FFF] = val
 	case addr >= 0xFE00 && addr <= 0xFE9F:
 		m.writeOAM(addr, val)
 	case addr >= 0xFEA0 && addr <= 0xFEFF:
@@ -233,9 +200,9 @@ func (m *MemoryBus) Write(addr uint16, val byte) {
 	case addr >= 0xFF00 && addr <= 0xFF7F:
 		m.writeIO(addr, val)
 	case addr >= 0xFF80 && addr <= 0xFFFE:
-		m.hram[addr-0xFF80] = val
+		m.HRAM[addr-0xFF80] = val
 	case addr == 0xFFFF:
-		m.ie = val
+		m.IE = val
 	}
 }
 
@@ -244,13 +211,13 @@ func (m *MemoryBus) writeOAM(addr uint16, val byte) {
 	if m.ppu != nil && m.ppu.GetMode() == ppuModeOAM {
 		row := m.ppu.GetOAMRow()
 		if row > 0 {
-			applyOAMWriteCorruption(m.oam[:], row)
+			applyOAMWriteCorruption(m.OAM[:], row)
 			return
 		}
 	} else if m.ppu != nil && m.ppu.GetMode() == ppuModeVRAM {
 		return
 	}
-	m.oam[addr-0xFE00] = val
+	m.OAM[addr-0xFE00] = val
 }
 
 // writeIO handles writes to the IO register range (0xFF00-0xFF7F).
@@ -261,18 +228,18 @@ func (m *MemoryBus) writeIO(addr uint16, val byte) {
 	}
 	switch addr {
 	case 0xFF01:
-		m.sb = val
+		m.SB = val
 		return
 	case 0xFF02:
-		m.sc = val
+		m.SC = val
 		if val&0x81 == 0x81 {
-			m.serialActive = true
-			m.serialCycles = 4096
+			m.SerialActive = true
+			m.SerialCycles = 4096
 		}
 		return
 	}
 	if addr == 0xFF50 && val&0x01 != 0 {
-		m.bootROMEnabled = false
+		m.BootROMEnabled = false
 	}
 	if addr >= 0xFF04 && addr <= 0xFF07 && m.timer != nil {
 		m.timer.WriteRegister(addr, val)
@@ -287,7 +254,7 @@ func (m *MemoryBus) writeIO(addr uint16, val byte) {
 		m.ppu.WriteRegister(addr, val)
 		return
 	}
-	m.io[addr-0xFF00] = val
+	m.IO[addr-0xFF00] = val
 }
 
 // startDMA initiates an OAM DMA transfer from the given source register.
@@ -295,30 +262,30 @@ func (m *MemoryBus) writeIO(addr uint16, val byte) {
 // DMA takes 160 T-cycles (1 byte/cycle). During this period only HRAM is accessible.
 func (m *MemoryBus) startDMA(val byte) {
 	src := uint16(val) << 8
-	m.dmaSource = src
-	m.dmaActive = true
-	m.dmaRemaining = 160
+	m.DMA.Source = src
+	m.DMA.Active = true
+	m.DMA.Remaining = 160
 }
 
 // DMAStep advances the OAM DMA transfer by the given number of T-cycles.
 func (m *MemoryBus) DMAStep(cycles int) {
-	if !m.dmaActive {
+	if !m.DMA.Active {
 		return
 	}
 
-	for cycles > 0 && m.dmaRemaining > 0 {
+	for cycles > 0 && m.DMA.Remaining > 0 {
 		// Read source byte directly (not through m.Read, which restricts
 		// access during DMA). The DMA controller has its own bus master
 		// port and can access arbitrary memory during OAM DMA.
-		srcAddr := m.dmaSource + uint16(160-m.dmaRemaining)
+		srcAddr := m.DMA.Source + uint16(160-m.DMA.Remaining)
 		val := m.dmaRead(srcAddr)
-		m.oam[160-m.dmaRemaining] = val
-		m.dmaRemaining--
+		m.OAM[160-m.DMA.Remaining] = val
+		m.DMA.Remaining--
 		cycles--
 	}
 
-	if m.dmaRemaining <= 0 {
-		m.dmaActive = false
+	if m.DMA.Remaining <= 0 {
+		m.DMA.Active = false
 	}
 }
 
@@ -329,16 +296,16 @@ func (m *MemoryBus) dmaRead(addr uint16) byte {
 		return m.Cartridge.Read(addr)
 	}
 	if addr >= 0x8000 && addr <= 0x9FFF {
-		return m.vram[addr-0x8000]
+		return m.VRAM[addr-0x8000]
 	}
 	if addr >= 0xA000 && addr <= 0xBFFF && m.Cartridge != nil {
 		return m.Cartridge.Read(addr)
 	}
 	if addr >= 0xC000 && addr <= 0xDFFF {
-		return m.wram[addr-0xC000]
+		return m.WRAM[addr-0xC000]
 	}
 	if addr >= 0xE000 && addr <= 0xFDFF {
-		return m.wram[(addr-0xE000)&0x1FFF]
+		return m.WRAM[(addr-0xE000)&0x1FFF]
 	}
 	return 0xFF
 }
@@ -408,21 +375,21 @@ func applyOAMWriteCorruption(oam []byte, row int) {
 // Used by the PPU's scanOAM to read sprite data without triggering
 // the CPU OAM corruption or blocking logic.
 func (m *MemoryBus) ReadOAMDirect(addr uint16) byte {
-	return m.oam[addr-0xFE00]
+	return m.OAM[addr-0xFE00]
 }
 
 // WriteOAMDirect writes a byte to OAM bypassing mode/blocking checks.
 // Used by the PPU when it needs direct OAM access without triggering
 // corruption or blocking logic.
 func (m *MemoryBus) WriteOAMDirect(addr uint16, val byte) {
-	m.oam[addr-0xFE00] = val
+	m.OAM[addr-0xFE00] = val
 }
 
 // ReadVRAMDirect reads a byte from VRAM (0x8000-0x9FFF) bypassing the PPU
 // mode check that would otherwise return 0xFF during mode 3 (VRAM draw).
 // The PPU must use this when decoding tile data during rendering.
 func (m *MemoryBus) ReadVRAMDirect(addr uint16) byte {
-	return m.vram[addr-0x8000]
+	return m.VRAM[addr-0x8000]
 }
 
 // SerialStep advances the serial transfer by the given number of T-cycles.
@@ -431,62 +398,62 @@ func (m *MemoryBus) ReadVRAMDirect(addr uint16) byte {
 // to 1 (no external device = SI pull-up), SC bit 7 is cleared, and a serial
 // interrupt (IF bit 3) is requested.
 func (m *MemoryBus) SerialStep(cycles int) {
-	if !m.serialActive {
+	if !m.SerialActive {
 		return
 	}
-	m.serialCycles -= cycles
-	if m.serialCycles > 0 {
+	m.SerialCycles -= cycles
+	if m.SerialCycles > 0 {
 		return
 	}
 
 	// Transfer complete
 	// Shift SB right by 1, shift in 1 (no external device = SI pulled high)
-	m.sb = (m.sb >> 1) | 0x80
+	m.SB = (m.SB >> 1) | 0x80
 	// Clear transfer active flag (SC bit 7)
-	m.sc &^= 0x80
+	m.SC &^= 0x80
 	// Request serial interrupt (IF bit 3)
-	m.io[0x0F] |= 0x08
-	m.serialActive = false
+	m.IO[0x0F] |= 0x08
+	m.SerialActive = false
 }
 
 // ReadIF returns the IF (interrupt flag) register value at 0xFF0F.
 func (m *MemoryBus) ReadIF() byte {
-	return m.io[0x0F]
+	return m.IO[0x0F]
 }
 
 // WriteIF sets the IF (interrupt flag) register value at 0xFF0F.
 func (m *MemoryBus) WriteIF(val byte) {
-	m.io[0x0F] = val
+	m.IO[0x0F] = val
 }
 
 // ReadIE returns the IE (interrupt enable) register value at 0xFFFF.
 func (m *MemoryBus) ReadIE() byte {
-	return m.ie
+	return m.IE
 }
 
 // WriteIE sets the IE (interrupt enable) register value at 0xFFFF.
 func (m *MemoryBus) WriteIE(val byte) {
-	m.ie = val
+	m.IE = val
 }
 
 // ReadSB returns the serial transfer data register (0xFF01).
 func (m *MemoryBus) ReadSB() byte {
-	return m.sb
+	return m.SB
 }
 
 // WriteSB sets the serial transfer data register (0xFF01).
 func (m *MemoryBus) WriteSB(val byte) {
-	m.sb = val
+	m.SB = val
 }
 
 // ReadSC returns the serial transfer control register (0xFF02).
 func (m *MemoryBus) ReadSC() byte {
-	return m.sc
+	return m.SC
 }
 
 // WriteSC sets the serial transfer control register (0xFF02).
 func (m *MemoryBus) WriteSC(val byte) {
-	m.sc = val
+	m.SC = val
 }
 
 // Read16 reads two bytes (little-endian) starting at addr.
@@ -515,71 +482,37 @@ func (m *MemoryBus) LoadBootROM(data []byte) {
 	if len(data) > 256 {
 		data = data[:256]
 	}
-	copy(m.bootROM[:], data)
-	m.bootROMEnabled = true
+	copy(m.BootROM[:], data)
+	m.BootROMEnabled = true
 }
 
-// DumpEmulatorState captures the complete memory bus and I/O state.
+// DumpEmulatorState captures the complete memory bus, components, and I/O state.
 func (m *MemoryBus) DumpEmulatorState() EmulatorState {
 	return EmulatorState{
-		WRAM: m.wram,
-		VRAM: m.vram,
-		OAM:  m.oam,
-		HRAM: m.hram,
-		IO:   m.io,
-		IE:   m.ie,
-
-		BootROMEnabled: m.bootROMEnabled,
-		BootROM:        m.bootROM,
-
-		DMA: DMAState{
-			Active:    m.dmaActive,
-			Source:    m.dmaSource,
-			Remaining: m.dmaRemaining,
+		Memory: *m.MemoryState,
+		CPU:    m.cpuRef.GetState(),
+		PPU:    m.ppu.GetState(),
+		Timer:  m.timer.GetState(),
+		APU:    m.apu.GetState(),
+		Cartridge: CartridgeState{
+			MBC:        m.Cartridge.GetState(),
+			BatteryRAM: m.Cartridge.SaveRAM(),
 		},
-		SerialActive: m.serialActive,
-		SerialCycles: m.serialCycles,
-		SB:           m.sb,
-		SC:           m.sc,
-
-		CPU:  m.cpuRef.GetState(),
-		PPU:  m.ppu.GetState(),
-		Timer: m.timer.GetState(),
-		APU:  m.apu.GetState(),
-
-		MBC:        m.Cartridge.GetState(),
-		BatteryRAM: m.Cartridge.SaveRAM(),
 	}
 }
 
-// LoadEmulatorState restores the memory bus and all components from a EmulatorState.
+// LoadEmulatorState restores the memory bus and all components from an EmulatorState.
 func (m *MemoryBus) LoadEmulatorState(s EmulatorState) {
-	m.wram = s.WRAM
-	m.vram = s.VRAM
-	m.oam = s.OAM
-	m.hram = s.HRAM
-	m.io = s.IO
-	m.ie = s.IE
-
-	m.bootROMEnabled = s.BootROMEnabled
-	m.bootROM = s.BootROM
-
-	m.dmaActive = s.DMA.Active
-	m.dmaSource = s.DMA.Source
-	m.dmaRemaining = s.DMA.Remaining
-	m.serialActive = s.SerialActive
-	m.serialCycles = s.SerialCycles
-	m.sb = s.SB
-	m.sc = s.SC
+	*m.MemoryState = s.Memory
 
 	m.cpuRef.SetState(s.CPU)
 	m.ppu.SetState(s.PPU)
 	m.timer.SetState(s.Timer)
 	m.apu.SetState(s.APU)
 
-	m.Cartridge.SetState(s.MBC)
-	if len(s.BatteryRAM) > 0 && m.Cartridge.HasBattery() {
-		m.Cartridge.LoadRAM(s.BatteryRAM)
+	m.Cartridge.SetState(s.Cartridge.MBC)
+	if len(s.Cartridge.BatteryRAM) > 0 && m.Cartridge.HasBattery() {
+		m.Cartridge.LoadRAM(s.Cartridge.BatteryRAM)
 	}
 	m.lastPPUCycle = m.cpuRef.Cycles
 }

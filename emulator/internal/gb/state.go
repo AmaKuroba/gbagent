@@ -132,15 +132,9 @@ type DMAState struct {
 	Remaining int
 }
 
-// EmulatorState is a complete emulator snapshot for save/load.
-// It captures everything needed to perfectly restore emulation.
-type EmulatorState struct {
-	CPU        CPUState
-	PPU        PPUState
-	Timer      TimerState
-	APU        APUState
-
-	// All writable memory regions
+// MemoryState is the canonical state for the memory bus — all writable
+// memory regions, IO registers, boot ROM state, DMA, and serial transfer.
+type MemoryState struct {
 	WRAM [0x2000]byte // 0xC000-0xDFFF (8KB)
 	VRAM [0x2000]byte // 0x8000-0x9FFF (8KB)
 	OAM  [0xA0]byte   // 0xFE00-0xFE9F (160 bytes)
@@ -148,16 +142,30 @@ type EmulatorState struct {
 	IO   [0x80]byte   // 0xFF00-0xFF7F (128 bytes)
 	IE   byte         // 0xFFFF
 
-	// MMU internal state
 	BootROMEnabled bool
 	BootROM        [256]byte
-	DMA            DMAState
-	SerialActive   bool
-	SerialCycles   int
-	SB             byte
-	SC             byte
 
-	// Cartridge / MBC
+	DMA          DMAState
+	SerialActive bool
+	SerialCycles int
+	SB           byte
+	SC           byte
+}
+
+// CartridgeState captures MBC and battery RAM state.
+type CartridgeState struct {
 	MBC        MBCState
 	BatteryRAM []byte
+}
+
+// EmulatorState is the complete canonical emulator state for save/load.
+// Every component (CPU, PPU, Timer, APU, memory) has its state embedded here,
+// so serialisation is a single call.
+type EmulatorState struct {
+	CPU       CPUState
+	PPU       PPUState
+	Timer     TimerState
+	APU       APUState
+	Memory    MemoryState
+	Cartridge CartridgeState
 }

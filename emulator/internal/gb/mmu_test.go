@@ -424,13 +424,13 @@ func TestMMU_SerialTransfer_StartOnSC81(t *testing.T) {
 	mmu := NewMMU(nil)
 
 	// Transfer should not be active initially
-	assert.False(t, mmu.serialActive, "serial should not be active initially")
-	assert.Equal(t, 0, mmu.serialCycles, "serialCycles should be 0 initially")
+	assert.False(t, mmu.SerialActive, "serial should not be active initially")
+	assert.Equal(t, 0, mmu.SerialCycles, "serialCycles should be 0 initially")
 
 	// Write 0x81 (bit 7=1, bit 0=1) to start master-mode transfer
 	mmu.Write(0xFF02, 0x81)
-	assert.True(t, mmu.serialActive, "serial should be active after writing 0x81")
-	assert.Equal(t, 4096, mmu.serialCycles, "serialCycles should be 4096")
+	assert.True(t, mmu.SerialActive, "serial should be active after writing 0x81")
+	assert.Equal(t, 4096, mmu.SerialCycles, "serialCycles should be 4096")
 	assert.Equal(t, byte(0x81), mmu.Read(0xFF02), "SC should still read back 0x81")
 }
 
@@ -441,8 +441,8 @@ func TestMMU_SerialTransfer_NoStartWithoutBit7(t *testing.T) {
 
 	// Write 0x01 (bit 0 only, no bit 7) — should NOT start transfer
 	mmu.Write(0xFF02, 0x01)
-	assert.False(t, mmu.serialActive, "serial should not be active after writing 0x01")
-	assert.Equal(t, 0, mmu.serialCycles, "serialCycles should be 0")
+	assert.False(t, mmu.SerialActive, "serial should not be active after writing 0x01")
+	assert.Equal(t, 0, mmu.SerialCycles, "serialCycles should be 0")
 	assert.Equal(t, byte(0x01), mmu.Read(0xFF02), "SC should read back 0x01")
 }
 
@@ -453,8 +453,8 @@ func TestMMU_SerialTransfer_NoStartWithoutBit0(t *testing.T) {
 
 	// Write 0x80 (bit 7 only, no bit 0) — slave mode, should NOT start transfer
 	mmu.Write(0xFF02, 0x80)
-	assert.False(t, mmu.serialActive, "serial should not be active in slave mode")
-	assert.Equal(t, 0, mmu.serialCycles, "serialCycles should be 0")
+	assert.False(t, mmu.SerialActive, "serial should not be active in slave mode")
+	assert.Equal(t, 0, mmu.SerialCycles, "serialCycles should be 0")
 	assert.Equal(t, byte(0x80), mmu.Read(0xFF02), "SC should read back 0x80")
 }
 
@@ -465,22 +465,22 @@ func TestMMU_SerialTransfer_PartialSteps(t *testing.T) {
 
 	mmu.WriteSB(0xAB)
 	mmu.Write(0xFF02, 0x81) // start transfer
-	assert.True(t, mmu.serialActive, "serial should be active")
+	assert.True(t, mmu.SerialActive, "serial should be active")
 
 	// Advance 1000 T-cycles — not enough to complete
 	mmu.SerialStep(1000)
-	assert.True(t, mmu.serialActive, "serial should still be active after 1000 cycles")
-	assert.Equal(t, 3096, mmu.serialCycles, "serialCycles should be 4096-1000=3096")
+	assert.True(t, mmu.SerialActive, "serial should still be active after 1000 cycles")
+	assert.Equal(t, 3096, mmu.SerialCycles, "serialCycles should be 4096-1000=3096")
 
 	// Advance another 2000 T-cycles — still not done
 	mmu.SerialStep(2000)
-	assert.True(t, mmu.serialActive, "serial should still be active after 3000 total cycles")
-	assert.Equal(t, 1096, mmu.serialCycles, "serialCycles should be 1096")
+	assert.True(t, mmu.SerialActive, "serial should still be active after 3000 total cycles")
+	assert.Equal(t, 1096, mmu.SerialCycles, "serialCycles should be 1096")
 
 	// Advance 1000 more (total 4000) — still not done
 	mmu.SerialStep(1000)
-	assert.True(t, mmu.serialActive, "serial should still be active after 4000 total cycles")
-	assert.Equal(t, 96, mmu.serialCycles, "serialCycles should be 96")
+	assert.True(t, mmu.SerialActive, "serial should still be active after 4000 total cycles")
+	assert.Equal(t, 96, mmu.SerialCycles, "serialCycles should be 96")
 }
 
 // TestMMU_SerialTransfer_Completion verifies the full serial transfer cycle:
@@ -491,7 +491,7 @@ func TestMMU_SerialTransfer_Completion(t *testing.T) {
 	// Set up SB with a known value and start transfer
 	mmu.WriteSB(0xAB) // 0xAB = 10101011
 	mmu.Write(0xFF02, 0x81)
-	assert.True(t, mmu.serialActive)
+	assert.True(t, mmu.SerialActive)
 
 	// Clear IF register first
 	mmu.WriteIF(0x00)
@@ -501,8 +501,8 @@ func TestMMU_SerialTransfer_Completion(t *testing.T) {
 	mmu.SerialStep(4096)
 
 	// Verify transfer completed
-	assert.False(t, mmu.serialActive, "serial should no longer be active")
-	assert.Equal(t, 0, mmu.serialCycles, "serialCycles should be 0")
+	assert.False(t, mmu.SerialActive, "serial should no longer be active")
+	assert.Equal(t, 0, mmu.SerialCycles, "serialCycles should be 0")
 
 	// SB should be shifted right by 1 with bit 7 set to 1 (no external device)
 	// 0xAB = 1010 1011 → >> 1 = 0101 0101 → | 0x80 = 1101 0101 = 0xD5
@@ -538,7 +538,7 @@ func TestMMU_SerialTransfer_ExcessCycles(t *testing.T) {
 	// Advance way past the deadline
 	mmu.SerialStep(10000)
 
-	assert.False(t, mmu.serialActive, "serial should be inactive after excess cycles")
+	assert.False(t, mmu.SerialActive, "serial should be inactive after excess cycles")
 	// 0xFF >> 1 | 0x80 = 0x7F | 0x80 = 0xFF
 	assert.Equal(t, byte(0xFF), mmu.ReadSB(), "SB all-ones stays all-ones after shift")
 	assert.Equal(t, byte(0x01), mmu.ReadSC(), "SC bit 7 should be cleared")
