@@ -243,7 +243,7 @@ func (h *jsonrpcHandler) handleGetState(req jsonrpcRequest, resp *jsonrpcRespons
 		},
 		"ppu": map[string]any{
 			"mode": ps.Mode, "ly": ps.LY, "lcdc": ps.LCDC,
-			"stat": ps.STAT, "frame_count": fc,
+			"stat": ps.Stat, "frame_count": fc,
 		},
 		"timer": map[string]any{
 			"div": ts.DIV, "tima": ts.TIMA, "tma": ts.TMA, "tac": ts.TAC,

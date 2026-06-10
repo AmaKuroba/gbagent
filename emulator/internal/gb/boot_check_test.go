@@ -60,7 +60,7 @@ func TestLYVBlankExits(t *testing.T) {
 
 	// Now check if boot ROM progresses
 	ps := ppu.GetState()
-	t.Logf("After exit: PC=0x%04X LY=%d Frame=%d", cpu.PC, ps.LY, ps.FrameCount)
+	t.Logf("After exit: PC=0x%04X LY=%d Frame=%d", cpu.PC, ps.LY, ps.FrameCtr)
 	t.Logf("CPU: AF=0x%04X BC=0x%04X DE=0x%04X HL=0x%04X SP=0x%04X",
 		cpu.AF, cpu.BC, cpu.DE, cpu.HL, cpu.SP)
 	bootRO := mmu.Read(0xFF50)

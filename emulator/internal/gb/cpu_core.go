@@ -2,20 +2,7 @@ package gb
 
 // Core implements the CPU interface for the LR35902 (Sharp SM83) processor.
 type Core struct {
-	// 16-bit register pairs
-	AF, BC, DE, HL, SP, PC uint16
-
-	// Interrupt state
-	IME          bool // Interrupt Master Enable
-	IMEScheduled int  // EI schedule: 2=just set, 1=enable after this instr, 0=active
-	Halted       bool
-	Stopped      bool
-	HaltBug      bool // HALT bug: prevent PC increment on next opcode fetch
-
-	// Cycle counter
-	Cycles uint64
-
-	// Memory bus (interface)
+	*CPUState
 	MMU MMU
 }
 
@@ -29,7 +16,10 @@ const (
 )
 
 func NewCore(mmu MMU) *Core {
-	return &Core{PC: 0x0100, SP: 0xFFFE, MMU: mmu}
+	return &Core{
+		CPUState: &CPUState{PC: 0x0100, SP: 0xFFFE},
+		MMU:      mmu,
+	}
 }
 
 func (c *Core) A() byte   { return byte(c.AF >> 8) }
@@ -311,24 +301,11 @@ func (c *Core) Reset() {
 }
 
 func (c *Core) GetState() CPUState {
-	return CPUState{
-		AF: c.AF, BC: c.BC, DE: c.DE, HL: c.HL,
-		SP: c.SP, PC: c.PC, IME: c.IME,
-		Halted: c.Halted, Stopped: c.Stopped, Cycles: c.Cycles,
-	}
+	return *c.CPUState
 }
 
 func (c *Core) SetState(s CPUState) {
-	c.AF = s.AF
-	c.BC = s.BC
-	c.DE = s.DE
-	c.HL = s.HL
-	c.SP = s.SP
-	c.PC = s.PC
-	c.IME = s.IME
-	c.Halted = s.Halted
-	c.Stopped = s.Stopped
-	c.Cycles = s.Cycles
+	*c.CPUState = s
 }
 
 // NewCoreCPU is an alias for NewCore (ALU test compatibility).

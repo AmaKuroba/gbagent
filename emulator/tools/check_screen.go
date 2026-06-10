@@ -49,7 +49,7 @@ func main() {
 		}
 	}
 
-	println("Frame count:", ppu.GetState().FrameCount)
+	println("Frame count:", ppu.GetState().FrameCtr)
 	println("LY:", ppu.GetState().LY)
 	println("Mode:", ppu.GetState().Mode)
 	println("Unique colors on screen:", len(colorMap))

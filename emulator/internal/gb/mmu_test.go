@@ -197,7 +197,7 @@ func TestMMU_ReadVRAM_BlockedDuringMode3(t *testing.T) {
 	assert.Equal(t, byte(0xAB), mmu.Read(0x8000), "should write/read VRAM normally in Mode 2")
 
 	// Switch to Mode 3 (VRAM draw) — VRAM reads return 0xFF
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeVRAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeVRAM
 	assert.Equal(t, byte(0xFF), mmu.Read(0x8000), "VRAM read should return 0xFF in Mode 3")
 	assert.Equal(t, byte(0xFF), mmu.Read(0x9FFF), "VRAM read at end should return 0xFF in Mode 3")
 }
@@ -207,16 +207,16 @@ func TestMMU_WriteVRAM_IgnoredDuringMode3(t *testing.T) {
 	ppu := attachPPU(mmu)
 
 	// Write initial value in accessible mode
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	mmu.Write(0x8000, 0xAB)
 	assert.Equal(t, byte(0xAB), mmu.Read(0x8000), "VRAM write should work in Mode 0")
 
 	// Switch to Mode 3 — write should be ignored
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeVRAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeVRAM
 	mmu.Write(0x8000, 0xCD)
 
 	// Switch back to accessible mode to verify old value is preserved
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	assert.Equal(t, byte(0xAB), mmu.Read(0x8000), "VRAM write should be ignored in Mode 3 (old value preserved)")
 }
 
@@ -227,15 +227,15 @@ func TestMMU_ReadVRAM_AccessibleDuringModes012(t *testing.T) {
 	mmu.Write(0x8000, 0x42) // Write in whatever mode we start in
 
 	// Mode 0 (HBlank)
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	assert.Equal(t, byte(0x42), mmu.Read(0x8000), "VRAM readable in Mode 0")
 
 	// Mode 1 (VBlank)
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeVBlank
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeVBlank
 	assert.Equal(t, byte(0x42), mmu.Read(0x8000), "VRAM readable in Mode 1")
 
 	// Mode 2 (OAM scan) — VRAM should be accessible
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeOAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeOAM
 	assert.Equal(t, byte(0x42), mmu.Read(0x8000), "VRAM readable in Mode 2")
 }
 
@@ -245,24 +245,24 @@ func TestMMU_ReadOAM_BlockedDuringModes2And3(t *testing.T) {
 
 	// Write known value to OAM first (accessible in current mode — PPU starts in Mode 2,
 	// but we can move to Mode 0 to write)
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	mmu.Write(0xFE00, 0xDE)
 	assert.Equal(t, byte(0xDE), mmu.Read(0xFE00), "OAM accessible in Mode 0")
 
 	// Mode 2 (OAM search) — OAM reads for row 0 (objects 0-1 at FE00-FE07) are NOT
 	// affected by the OAM corruption bug, so they return the actual value.
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeOAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeOAM
 	assert.Equal(t, byte(0xDE), mmu.Read(0xFE00), "OAM read at row 0 (0xFE00) should return real value in Mode 2 (no corruption on objects 0-1)")
 
 	// Mode 3 (VRAM draw) — OAM reads return 0xFF
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeVRAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeVRAM
 	assert.Equal(t, byte(0xFF), mmu.Read(0xFE00), "OAM read should return 0xFF in Mode 3")
 
 	// Verify reads from row > 0 during Mode 2 DO return corrupted values
 	// (not 0xFF). The corruption applies to the PPU's current OAM row
 	// (determined by dotCounter), not the address being read.
 	// Advance the PPU dotCounter so that GetOAMRow() returns a row > 0.
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	// Set up row 0 (preceding row for row 1) and row 1 with specific values
 	// so we can predict the corruption.
 	// Row 0 (FE00-FE07): first word = 0x0000, third word = 0x0000
@@ -270,7 +270,7 @@ func TestMMU_ReadOAM_BlockedDuringModes2And3(t *testing.T) {
 	mmu.Write(0xFE08, 0xFF)
 	mmu.Write(0xFE09, 0x00)
 
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeOAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeOAM
 	ppu.Step(8) // advance dotCounter so row = 8/4 = 2
 
 	// Read from an address in row 2 (where the PPU currently is).
@@ -278,7 +278,7 @@ func TestMMU_ReadOAM_BlockedDuringModes2And3(t *testing.T) {
 	mmu.Read(0xFE10) // triggers corruption of row 2
 
 	// Verify the corruption actually happened by reading back in accessible mode
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	// Read corruption formula: b | (a & c) = 0x00FF | (0x0000 & 0x0000) = 0x00FF
 	assert.Equal(t, byte(0xFF), mmu.Read(0xFE10),
 		"OAM at FE10 should be corrupted (read corruption first word = b | (a & c) = 0xFF)")
@@ -289,40 +289,40 @@ func TestMMU_WriteOAM_IgnoredDuringModes2And3(t *testing.T) {
 	ppu := attachPPU(mmu)
 
 	// Write initial value in accessible mode
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	mmu.Write(0xFE00, 0x12)
 	assert.Equal(t, byte(0x12), mmu.Read(0xFE00), "OAM write should work in Mode 0")
 
 	// Mode 2 — row 0 (objects 0-1 at FE00-FE07) is NOT affected by corruption,
 	// so writes should go through normally.
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeOAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeOAM
 	mmu.Write(0xFE00, 0x34)
 
 	// Switch back to Mode 0 to verify — should reflect the write done during Mode 2
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	assert.Equal(t, byte(0x34), mmu.Read(0xFE00), "OAM write to row 0 (0xFE00) should work in Mode 2 (objects 0-1 not affected by corruption)")
 
 	// Mode 3 — write should be ignored
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeVRAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeVRAM
 	mmu.Write(0xFE00, 0x56)
 
 	// Switch back to accessible mode to verify
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	assert.Equal(t, byte(0x34), mmu.Read(0xFE00), "OAM write should be ignored in Mode 3")
 
 	// Verify writes to row > 0 during Mode 2 DO corrupt data.
 	// Advance PPU dotCounter so GetOAMRow() > 0.
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	// Set up row 2 with a known value and row 0 with zero values
 	mmu.Write(0xFE10, 0x78) // row 2 byte 0
 	mmu.Write(0xFE11, 0x9A) // row 2 byte 1
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeOAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeOAM
 	ppu.Step(8) // advance dotCounter to 8 so row = 8/4 = 2 > 0
 
 	// Write to an address in row 2 during mode 2 — value is lost, row corrupted
 	mmu.Write(0xFE10, 0x42) // attempt to write, but bus conflict corrupts row 2
 
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	// Write corruption formula with a=0x9A78, b=0x0000, c=0x0000:
 	// ((a ^ c) & (b ^ c)) ^ c = ((0x9A78 ^ 0) & (0 ^ 0)) ^ 0 = (0x9A78 & 0) = 0
 	corrupted := mmu.Read(0xFE10)
@@ -335,17 +335,17 @@ func TestMMU_ReadOAM_AccessibleDuringModes01(t *testing.T) {
 	ppu := attachPPU(mmu)
 
 	// Write values in accessible mode first
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	mmu.Write(0xFE00, 0x78)
 	mmu.Write(0xFE04, 0x9A)
 
 	// Mode 0 (HBlank)
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	assert.Equal(t, byte(0x78), mmu.Read(0xFE00), "OAM readable in Mode 0")
 	assert.Equal(t, byte(0x9A), mmu.Read(0xFE04), "OAM readable in Mode 0")
 
 	// Mode 1 (VBlank)
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeVBlank
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeVBlank
 	assert.Equal(t, byte(0x78), mmu.Read(0xFE00), "OAM readable in Mode 1")
 }
 
@@ -643,7 +643,7 @@ func TestOAMReadCorruption_RowZeroUnaffected(t *testing.T) {
 	ppu := attachPPU(mmu)
 
 	// Set up OAM values in row 0
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	mmu.Write(0xFE00, 0xAA)
 	mmu.Write(0xFE01, 0xBB)
 	mmu.Write(0xFE04, 0xCC)
@@ -652,7 +652,7 @@ func TestOAMReadCorruption_RowZeroUnaffected(t *testing.T) {
 	// Set row to 0 in PPU stat. In mode 2 with dotCounter < 4, row = 0.
 	// We can't easily set dotCounter from outside, but we can use the
 	// fact that after Reset, dotCounter=0 so GetOAMRow returns 0.
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeOAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeOAM
 
 	// Read from row 0 — should not be corrupted
 	assert.Equal(t, byte(0xAA), mmu.Read(0xFE00), "OAM read at FE00 should not be corrupted (row 0)")
@@ -665,17 +665,17 @@ func TestOAMWriteCorruption_RowZeroUnaffected(t *testing.T) {
 	ppu := attachPPU(mmu)
 
 	// Start in accessible mode and set up OAM
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	mmu.Write(0xFE00, 0x12)
 	mmu.Write(0xFE04, 0x34)
 
 	// Mode 2, row 0 — writes should go through
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeOAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeOAM
 	mmu.Write(0xFE00, 0xAB)
 	mmu.Write(0xFE04, 0xCD)
 
 	// Verify writes took effect (row 0 is not affected)
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	assert.Equal(t, byte(0xAB), mmu.Read(0xFE00), "OAM write to FE00 should work in mode 2 (row 0)")
 	assert.Equal(t, byte(0xCD), mmu.Read(0xFE04), "OAM write to FE04 should work in mode 2 (row 0)")
 }
@@ -692,7 +692,7 @@ func TestOAMReadCorruption_PersistentCorruption(t *testing.T) {
 	ppu := attachPPU(mmu)
 
 	// Set up row 0 and row 1 with known values
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	// Row 0: first word = 0x0001, third word = 0x0002
 	mmu.Write(0xFE00, 0x01)
 	mmu.Write(0xFE01, 0x00)
@@ -703,7 +703,7 @@ func TestOAMReadCorruption_PersistentCorruption(t *testing.T) {
 	mmu.Write(0xFE09, 0x00)
 
 	// Now trigger corruption via read in mode 2
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeOAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeOAM
 	ppu.Step(8) // advance dotCounter so row = 8/4 = 2, NOT row 1
 	// At row 2, the Read below will corrupt row 2 (not row 1 where FE08 lives).
 	// So let's read from an address in row 2 instead.
@@ -714,7 +714,7 @@ func TestOAMReadCorruption_PersistentCorruption(t *testing.T) {
 	assert.NotEqual(t, byte(0x42), corruptedVal, "read corruption should change the value")
 
 	// Go back to accessible mode — the OAM data should still be corrupted
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	afterCorruption := mmu.Read(0xFE28)
 	assert.Equal(t, corruptedVal, afterCorruption, "OAM corruption should persist after mode change")
 }
@@ -723,7 +723,7 @@ func TestOAMReadCorruption_MultipleRows(t *testing.T) {
 	mmu := NewMMU(nil)
 	ppu := attachPPU(mmu)
 
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	// Fill all 20 rows with distinct byte patterns
 	// Row 0: first word = 0x1000, third word = 0x2000
 	mmu.Write(0xFE00, 0x00)
@@ -738,11 +738,11 @@ func TestOAMReadCorruption_MultipleRows(t *testing.T) {
 	mmu.Write(0xFE11, 0x40)
 
 	// Read from OAM during mode 2 with a row > 0
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeOAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeOAM
 	mmu.Read(0xFE08) // corrupts row 1
 
 	// After corruption, row 0 should be unchanged
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	assert.Equal(t, byte(0x00), mmu.Read(0xFE00), "row 0 byte 0 should be unchanged")
 	assert.Equal(t, byte(0x10), mmu.Read(0xFE01), "row 0 byte 1 should be unchanged")
 
@@ -757,7 +757,7 @@ func TestOAMWriteCorruption_IntegratesIntoMemory(t *testing.T) {
 	mmu := NewMMU(nil)
 	ppu := attachPPU(mmu)
 
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	// Set up row 0 with known values
 	mmu.Write(0xFE00, 0x11)
 	mmu.Write(0xFE01, 0x22)
@@ -768,11 +768,11 @@ func TestOAMWriteCorruption_IntegratesIntoMemory(t *testing.T) {
 	mmu.Write(0xFE09, 0x66)
 
 	// Write during mode 2 — corrupts row 1
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeOAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeOAM
 	mmu.Write(0xFE08, 0x77) // value is lost, row 1 is corrupted via write formula
 
 	// After going back to accessible mode, ReadOAMDirect should return the corrupted data
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	directVal := mmu.ReadOAMDirect(0xFE08)
 	memVal := mmu.Read(0xFE08)
 
@@ -788,13 +788,13 @@ func TestOAMReadCorruption_FEA0toFEFFRegion(t *testing.T) {
 	mmu := NewMMU(nil)
 	ppu := attachPPU(mmu)
 
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	// Write to the unusable area
 	mmu.Write(0xFEA0, 0x42)
 	assert.Equal(t, byte(0x00), mmu.Read(0xFEA0), "unusable area normally returns 0x00")
 
 	// Access during mode 2 — should not panic
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeOAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeOAM
 	val := mmu.Read(0xFEA0)
 	_ = val // just verify no panic
 }
@@ -811,16 +811,16 @@ func TestOAMReadCorruption_Mode3StillBlocked(t *testing.T) {
 	mmu := NewMMU(nil)
 	ppu := attachPPU(mmu)
 
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	mmu.Write(0xFE00, 0xAA)
 
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeVRAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeVRAM
 	assert.Equal(t, byte(0xFF), mmu.Read(0xFE00), "OAM read should return 0xFF in Mode 3")
 
 	// Rows > 0 should also return 0xFF in mode 3
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	mmu.Write(0xFE08, 0xBB)
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeVRAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeVRAM
 	assert.Equal(t, byte(0xFF), mmu.Read(0xFE08), "OAM read at row 1 should return 0xFF in Mode 3")
 }
 
@@ -848,7 +848,7 @@ func TestOAMReadCorruption_CorruptsCorrectRow(t *testing.T) {
 	mmu := NewMMU(nil)
 	ppu := attachPPU(mmu)
 
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	// Set up row 0 with distinctive values
 	mmu.Write(0xFE00, 0x01)
 	mmu.Write(0xFE01, 0x00)
@@ -867,7 +867,7 @@ func TestOAMReadCorruption_CorruptsCorrectRow(t *testing.T) {
 
 	// Manually set dotCounter by using Step to advance to row 5.
 	// Row 5 starts at dotCounter = 5*4 = 20.
-	ppu.stat = (ppu.stat &^ 0x03) | ppuModeOAM
+	ppu.Stat = (ppu.Stat &^ 0x03) | ppuModeOAM
 	// Step to dotCounter=20 (row 5)
 	ppu.Step(20)
 
@@ -905,7 +905,7 @@ func TestOAMReadCorruption_CorruptsCorrectRow(t *testing.T) {
 	_ = val
 
 	// Go back to accessible mode and check that row 5 IS corrupted
-	ppu.stat &^= 0x03
+	ppu.Stat &^= 0x03
 	row5Val := mmu.Read(0xFE28)
 	assert.NotEqual(t, byte(0x55), row5Val, "row 5 (FE28) should be corrupted after mode 2 access")
 

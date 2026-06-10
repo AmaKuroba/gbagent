@@ -15,28 +15,15 @@ package gb
 //   10: 65536 Hz  (every 64 T-cycles)
 //   11: 16384 Hz  (every 256 T-cycles)
 type Timer struct {
-	// IO registers
-	DIV  byte // 0xFF04
-	TIMA byte // 0xFF05
-	TMA  byte // 0xFF06
-	TAC  byte // 0xFF07
-
-	// Internal 64-bit cycle counters (must not overflow — a frame is ~70k cycles).
-	// divCycles counts toward DIV increments (free-running, every 256 cycles).
-	// timaCycles counts toward TIMA increments (only when TAC bit 2 is set).
-	divCycles  uint64
-	timaCycles uint64
-
-	// mmu for requesting interrupts (set on TIMA overflow)
+	*TimerState
 	mmu MMU
 }
 
 // NewTimer creates a new Timer with default register values.
 func NewTimer(mmu MMU) *Timer {
-	// Power-on defaults per Pan Docs: TIMA=0x00, TMA=0x00, TAC=0xF8 (bits 7-3 always 1).
 	return &Timer{
-		TAC: 0xF8,
-		mmu: mmu,
+		TimerState: &TimerState{TAC: 0xF8},
+		mmu:        mmu,
 	}
 }
 
@@ -48,9 +35,9 @@ func (t *Timer) Step(cycles int) {
 	}
 
 	// --- DIV: free-running, always increments ---
-	t.divCycles += uint64(cycles)
-	for t.divCycles >= 256 {
-		t.divCycles -= 256
+	t.DivCycles += uint64(cycles)
+	for t.DivCycles >= 256 {
+		t.DivCycles -= 256
 		t.DIV++ // wraps naturally
 	}
 
@@ -60,10 +47,10 @@ func (t *Timer) Step(cycles int) {
 	}
 
 	threshold := uint64(t.timaThreshold())
-	t.timaCycles += uint64(cycles)
+	t.TimaCycles += uint64(cycles)
 
-	for t.timaCycles >= threshold {
-		t.timaCycles -= threshold
+	for t.TimaCycles >= threshold {
+		t.TimaCycles -= threshold
 		t.advanceTIMA()
 	}
 }
@@ -122,10 +109,10 @@ func (t *Timer) WriteRegister(addr uint16, val byte) {
 	case 0xFF04:
 		// Writing any value resets DIV (and the internal divider) to $00
 		t.DIV = 0
-		t.divCycles = 0
+		t.DivCycles = 0
 		// Writing to DIV also resets the internal cycle counter for TIMA
 		// (the same 16-bit internal divider feeds both DIV and TIMA timing)
-		t.timaCycles = 0
+		t.TimaCycles = 0
 	case 0xFF05:
 		t.TIMA = val
 	case 0xFF06:
@@ -134,61 +121,20 @@ func (t *Timer) WriteRegister(addr uint16, val byte) {
 		// TAC: only bits 2 and 1-0 are writable; bits 7-3 always read as 1
 		t.TAC = (val & 0x07) | 0xF8
 		// Writing to TAC resets the internal TIMA cycle counter
-		t.timaCycles = 0
+		t.TimaCycles = 0
 	}
 }
 
 // Reset sets the timer to power-on state.
 func (t *Timer) Reset() {
-	t.DIV = 0
-	t.TIMA = 0
-	t.TMA = 0
-	t.TAC = 0xF8
-	t.divCycles = 0
-	t.timaCycles = 0
+	t.TimerState = &TimerState{TAC: 0xF8}
 }
 
-// GetState returns a snapshot of the timer registers for debugging/display.
+// GetState returns the full timer state.
 func (t *Timer) GetState() TimerState {
-	return TimerState{
-		DIV:  t.DIV,
-		TIMA: t.TIMA,
-		TMA:  t.TMA,
-		TAC:  t.TAC,
-	}
+	return *t.TimerState
 }
 
 func (t *Timer) SetState(s TimerState) {
-	t.DIV = s.DIV
-	t.TIMA = s.TIMA
-	t.TMA = s.TMA
-	t.TAC = s.TAC
-}
-
-// GetFullState returns the timer state including internal cycle counters.
-func (t *Timer) GetFullState() TimerFullState {
-	return TimerFullState{
-		DIV: t.DIV, TIMA: t.TIMA, TMA: t.TMA, TAC: t.TAC,
-		DivCycles: t.divCycles, TimaCycles: t.timaCycles,
-	}
-}
-
-// SetFullState restores timer state from a TimerFullState.
-func (t *Timer) SetFullState(s TimerFullState) {
-	t.DIV = s.DIV
-	t.TIMA = s.TIMA
-	t.TMA = s.TMA
-	t.TAC = s.TAC
-	t.divCycles = s.DivCycles
-	t.timaCycles = s.TimaCycles
-}
-
-// TimerState is a debug snapshot of the timer hardware.
-type TimerState struct {
-	DIV   byte
-	TIMA  byte
-	TMA   byte
-	TAC   byte
-	Freq  string
-	Enable bool
+	*t.TimerState = s
 }

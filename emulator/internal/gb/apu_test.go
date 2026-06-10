@@ -174,8 +174,8 @@ func TestAPUNR52ChannelStatusBits(t *testing.T) {
 	require.Equal(t, byte(0), nr52&0x0F, "All channels off initially")
 
 	// Set channel active flags via exported fields (future: via channel logic).
-	apu.ch1On = true
-	apu.ch2On = true
+	apu.Ch1On = true
+	apu.Ch2On = true
 	nr52 = apu.ReadRegister(0xFF26)
 	require.True(t, nr52&0x01 != 0, "Ch1 status bit set")
 	require.True(t, nr52&0x02 != 0, "Ch2 status bit set")
@@ -184,8 +184,8 @@ func TestAPUNR52ChannelStatusBits(t *testing.T) {
 
 	// Turn APU off — resets channel status.
 	apu.WriteRegister(0xFF26, 0x70)
-	require.False(t, apu.ch1On, "Ch1 status cleared on APU off")
-	require.False(t, apu.ch2On, "Ch2 status cleared on APU off")
+	require.False(t, apu.Ch1On, "Ch1 status cleared on APU off")
+	require.False(t, apu.Ch2On, "Ch2 status cleared on APU off")
 }
 
 func TestAPURegisterReadReturnsStoredValueWhenAPUOff(t *testing.T) {
@@ -222,13 +222,13 @@ func TestAPUStepFrameSequencerTiming(t *testing.T) {
 	apu := NewAPU(&testAPUMMU{})
 	apu.WriteRegister(0xFF26, 0x80) // APU on
 
-	require.Equal(t, 0, apu.seqStep, "Sequencer starts at step 0")
+	require.Equal(t, 0, apu.SeqStep, "Sequencer starts at step 0")
 
 	apu.Step(8191)
-	require.Equal(t, 0, apu.seqStep, "Step 0 after 8191 cycles (not yet at boundary)")
+	require.Equal(t, 0, apu.SeqStep, "Step 0 after 8191 cycles (not yet at boundary)")
 
 	apu.Step(1)
-	require.Equal(t, 1, apu.seqStep, "Step 1 after 8192 cycles")
+	require.Equal(t, 1, apu.SeqStep, "Step 1 after 8192 cycles")
 }
 
 func TestAPUStepMultipleSequencerAdvances(t *testing.T) {
@@ -236,10 +236,10 @@ func TestAPUStepMultipleSequencerAdvances(t *testing.T) {
 	apu.WriteRegister(0xFF26, 0x80) // APU on
 
 	apu.Step(32768)
-	require.Equal(t, 4, apu.seqStep, "Step 4 after 32768 cycles (4 advances)")
+	require.Equal(t, 4, apu.SeqStep, "Step 4 after 32768 cycles (4 advances)")
 
 	apu.Step(32768)
-	require.Equal(t, 0, apu.seqStep, "Step 0 after 65536 cycles (8 advances, wrapped)")
+	require.Equal(t, 0, apu.SeqStep, "Step 0 after 65536 cycles (8 advances, wrapped)")
 }
 
 func TestAPUStepSplitCycles(t *testing.T) {
@@ -248,23 +248,23 @@ func TestAPUStepSplitCycles(t *testing.T) {
 
 	apu.Step(4096)
 	apu.Step(4096)
-	require.Equal(t, 1, apu.seqStep, "Step 1 after 4096+4096 cycles")
+	require.Equal(t, 1, apu.SeqStep, "Step 1 after 4096+4096 cycles")
 
 	apu.Step(8192)
-	require.Equal(t, 2, apu.seqStep, "Step 2 after another 8192 cycles")
+	require.Equal(t, 2, apu.SeqStep, "Step 2 after another 8192 cycles")
 
 	apu.Step(10000)
-	require.Equal(t, 3, apu.seqStep, "Step 3 after 10000 cycles (8192+1808 extra)")
+	require.Equal(t, 3, apu.SeqStep, "Step 3 after 10000 cycles (8192+1808 extra)")
 
 	apu.Step(6384)
-	require.Equal(t, 4, apu.seqStep, "Step 4 after remaining 6384 cycles")
+	require.Equal(t, 4, apu.SeqStep, "Step 4 after remaining 6384 cycles")
 }
 
 func TestAPUStepDoesNotAdvanceWhenAPUOff(t *testing.T) {
 	apu := NewAPU(&testAPUMMU{})
 
 	apu.Step(65536)
-	require.Equal(t, 0, apu.seqStep, "Sequencer stays at step 0 when APU off")
+	require.Equal(t, 0, apu.SeqStep, "Sequencer stays at step 0 when APU off")
 }
 
 func TestAPUStepResetsOnAPUOn(t *testing.T) {
@@ -272,11 +272,11 @@ func TestAPUStepResetsOnAPUOn(t *testing.T) {
 	apu.WriteRegister(0xFF26, 0x80) // APU on
 
 	apu.Step(8192 * 3)
-	require.Equal(t, 3, apu.seqStep, "Step 3 after 3 advances")
+	require.Equal(t, 3, apu.SeqStep, "Step 3 after 3 advances")
 
 	apu.WriteRegister(0xFF26, 0x70) // off
 	apu.WriteRegister(0xFF26, 0x80) // on
-	require.Equal(t, 0, apu.seqStep, "Sequencer resets to step 0 after APU off+on")
+	require.Equal(t, 0, apu.SeqStep, "Sequencer resets to step 0 after APU off+on")
 }
 
 func TestAPUStepResetsOnAPUOff(t *testing.T) {
@@ -284,21 +284,21 @@ func TestAPUStepResetsOnAPUOff(t *testing.T) {
 	apu.WriteRegister(0xFF26, 0x80) // APU on
 
 	apu.Step(8192 * 5)
-	require.Equal(t, 5, apu.seqStep, "Step 5 before APU off")
+	require.Equal(t, 5, apu.SeqStep, "Step 5 before APU off")
 
 	apu.WriteRegister(0xFF26, 0x70)
-	require.Equal(t, 0, apu.seqStep, "Sequencer resets to step 0 on APU off")
-	require.Equal(t, 0, apu.cyclAccum, "Cycle accumulator cleared on APU off")
+	require.Equal(t, 0, apu.SeqStep, "Sequencer resets to step 0 on APU off")
+	require.Equal(t, 0, apu.CycAccum, "Cycle accumulator cleared on APU off")
 }
 
 func TestAPUStepNegativeOrZero(t *testing.T) {
 	apu := NewAPU(&testAPUMMU{})
 	apu.WriteRegister(0xFF26, 0x80) // APU on
 
-	before := apu.seqStep
+	before := apu.SeqStep
 	apu.Step(0)
 	apu.Step(-1)
-	require.Equal(t, before, apu.seqStep, "Sequencer unchanged after 0/-1 cycles")
+	require.Equal(t, before, apu.SeqStep, "Sequencer unchanged after 0/-1 cycles")
 }
 
 // ---------------------------------------------------------------------------
@@ -316,8 +316,8 @@ func TestAPULengthCounterReloadOnTriggerCh1(t *testing.T) {
 	apu.WriteRegister(0xFF11, 0x3F)
 	// Trigger channel 1 via NR14 bit 7.
 	apu.WriteRegister(0xFF14, 0x80)
-	require.Equal(t, 1, apu.lengthCnt[0], "Ch1 length counter = 64-63 = 1")
-	require.True(t, apu.ch1On, "Ch1 should be on after trigger")
+	require.Equal(t, 1, apu.LengthCnt[0], "Ch1 length counter = 64-63 = 1")
+	require.True(t, apu.Ch1On, "Ch1 should be on after trigger")
 }
 
 func TestAPULengthCounterReloadOnTriggerCh2(t *testing.T) {
@@ -330,8 +330,8 @@ func TestAPULengthCounterReloadOnTriggerCh2(t *testing.T) {
 	// Set NR21 (length) to 0x01, so length counter = 64 - 1 = 63.
 	apu.WriteRegister(0xFF16, 0x01)
 	apu.WriteRegister(0xFF19, 0x80) // trigger ch2
-	require.Equal(t, 63, apu.lengthCnt[1], "Ch2 length counter = 64-1 = 63")
-	require.True(t, apu.ch2On, "Ch2 should be on after trigger")
+	require.Equal(t, 63, apu.LengthCnt[1], "Ch2 length counter = 64-1 = 63")
+	require.True(t, apu.Ch2On, "Ch2 should be on after trigger")
 }
 
 func TestAPULengthCounterReloadOnTriggerCh3(t *testing.T) {
@@ -342,8 +342,8 @@ func TestAPULengthCounterReloadOnTriggerCh3(t *testing.T) {
 	apu.WriteRegister(0xFF1A, 0x80)
 	apu.WriteRegister(0xFF1B, 0x80)
 	apu.WriteRegister(0xFF1E, 0x80) // trigger ch3
-	require.Equal(t, 128, apu.lengthCnt[2], "Ch3 length counter = 256-128 = 128")
-	require.True(t, apu.ch3On, "Ch3 should be on after trigger")
+	require.Equal(t, 128, apu.LengthCnt[2], "Ch3 length counter = 256-128 = 128")
+	require.True(t, apu.Ch3On, "Ch3 should be on after trigger")
 }
 
 func TestAPULengthCounterReloadOnTriggerCh4(t *testing.T) {
@@ -354,8 +354,8 @@ func TestAPULengthCounterReloadOnTriggerCh4(t *testing.T) {
 	apu.WriteRegister(0xFF21, 0xF0) // volume 15, dir 0, period 0
 	apu.WriteRegister(0xFF20, 0x20)
 	apu.WriteRegister(0xFF23, 0x80) // trigger ch4
-	require.Equal(t, 32, apu.lengthCnt[3], "Ch4 length counter = 64-32 = 32")
-	require.True(t, apu.ch4On, "Ch4 should be on after trigger")
+	require.Equal(t, 32, apu.LengthCnt[3], "Ch4 length counter = 64-32 = 32")
+	require.True(t, apu.Ch4On, "Ch4 should be on after trigger")
 }
 
 func TestAPULengthCounterDecrementsOnSequencerSteps(t *testing.T) {
@@ -367,16 +367,16 @@ func TestAPULengthCounterDecrementsOnSequencerSteps(t *testing.T) {
 	apu.WriteRegister(0xFF11, 0x00)
 	apu.WriteRegister(0xFF14, 0xC0) // trigger ch1 AND set length enable (bit 6)
 
-	require.Equal(t, 64, apu.lengthCnt[0], "Ch1 length counter initial = 64")
+	require.Equal(t, 64, apu.LengthCnt[0], "Ch1 length counter initial = 64")
 
 	apu.Step(8192)
-	require.Equal(t, 63, apu.lengthCnt[0], "Ch1 length counter decremented to 63")
+	require.Equal(t, 63, apu.LengthCnt[0], "Ch1 length counter decremented to 63")
 
 	apu.Step(8192)
-	require.Equal(t, 63, apu.lengthCnt[0], "Ch1 length counter unchanged at step 1 (no event)")
+	require.Equal(t, 63, apu.LengthCnt[0], "Ch1 length counter unchanged at step 1 (no event)")
 
 	apu.Step(8192)
-	require.Equal(t, 62, apu.lengthCnt[0], "Ch1 length counter decremented to 62 at step 2")
+	require.Equal(t, 62, apu.LengthCnt[0], "Ch1 length counter decremented to 62 at step 2")
 }
 
 func TestAPULengthCounterDisablesChannelOnZero(t *testing.T) {
@@ -387,12 +387,12 @@ func TestAPULengthCounterDisablesChannelOnZero(t *testing.T) {
 
 	apu.WriteRegister(0xFF11, 0x3F)
 	apu.WriteRegister(0xFF14, 0xC0) // trigger + length enable
-	require.Equal(t, 1, apu.lengthCnt[0], "Ch1 length counter = 1")
-	require.True(t, apu.ch1On, "Ch1 on after trigger")
+	require.Equal(t, 1, apu.LengthCnt[0], "Ch1 length counter = 1")
+	require.True(t, apu.Ch1On, "Ch1 on after trigger")
 
 	apu.Step(8192)
-	require.Equal(t, 0, apu.lengthCnt[0], "Ch1 length counter = 0")
-	require.False(t, apu.ch1On, "Ch1 disabled when length counter reaches 0")
+	require.Equal(t, 0, apu.LengthCnt[0], "Ch1 length counter = 0")
+	require.False(t, apu.Ch1On, "Ch1 disabled when length counter reaches 0")
 
 	nr52 := apu.ReadRegister(0xFF26)
 	require.True(t, nr52&0x01 == 0, "NR52 ch1 status bit clear after length counter reaches 0")
@@ -407,16 +407,16 @@ func TestAPULengthCounterEnableBitControlsClock(t *testing.T) {
 	apu.WriteRegister(0xFF11, 0x00)
 	apu.WriteRegister(0xFF14, 0x80) // trigger, bit 6 not set
 
-	require.Equal(t, 64, apu.lengthCnt[0], "Ch1 length counter loaded")
+	require.Equal(t, 64, apu.LengthCnt[0], "Ch1 length counter loaded")
 
 	apu.Step(8192)
-	require.Equal(t, 64, apu.lengthCnt[0], "Ch1 length counter unchanged (enable bit not set)")
-	require.True(t, apu.ch1On, "Ch1 still on")
+	require.Equal(t, 64, apu.LengthCnt[0], "Ch1 length counter unchanged (enable bit not set)")
+	require.True(t, apu.Ch1On, "Ch1 still on")
 
 	apu.WriteRegister(0xFF14, 0x40) // bit 6 = 1 enable, bit 7 = 0 no trigger
 
 	apu.Step(16384) // step 1 + step 2 = length counter at step 2
-	require.Equal(t, 63, apu.lengthCnt[0], "Ch1 length counter decremented after enable set")
+	require.Equal(t, 63, apu.LengthCnt[0], "Ch1 length counter decremented after enable set")
 }
 
 func TestAPULengthCounterMultipleChannels(t *testing.T) {
@@ -440,22 +440,22 @@ func TestAPULengthCounterMultipleChannels(t *testing.T) {
 	apu.WriteRegister(0xFF20, 64-15)
 	apu.WriteRegister(0xFF23, 0xC0) // trigger + enable
 
-	require.True(t, apu.ch1On, "Ch1 on")
-	require.True(t, apu.ch2On, "Ch2 on")
-	require.True(t, apu.ch3On, "Ch3 on")
-	require.True(t, apu.ch4On, "Ch4 on")
+	require.True(t, apu.Ch1On, "Ch1 on")
+	require.True(t, apu.Ch2On, "Ch2 on")
+	require.True(t, apu.Ch3On, "Ch3 on")
+	require.True(t, apu.Ch4On, "Ch4 on")
 
 	apu.Step(8192 * 4)
 
-	require.Equal(t, 3, apu.lengthCnt[0], "Ch1 length = 5-2 = 3")
-	require.Equal(t, 8, apu.lengthCnt[1], "Ch2 length = 10-2 = 8")
-	require.Equal(t, 18, apu.lengthCnt[2], "Ch3 length = 20-2 = 18")
-	require.Equal(t, 13, apu.lengthCnt[3], "Ch4 length = 15-2 = 13")
+	require.Equal(t, 3, apu.LengthCnt[0], "Ch1 length = 5-2 = 3")
+	require.Equal(t, 8, apu.LengthCnt[1], "Ch2 length = 10-2 = 8")
+	require.Equal(t, 18, apu.LengthCnt[2], "Ch3 length = 20-2 = 18")
+	require.Equal(t, 13, apu.LengthCnt[3], "Ch4 length = 15-2 = 13")
 
-	require.True(t, apu.ch1On, "Ch1 still on")
+	require.True(t, apu.Ch1On, "Ch1 still on")
 
 	apu.Step(8192 * 6)
-	require.False(t, apu.ch1On, "Ch1 disabled after length runs out")
+	require.False(t, apu.Ch1On, "Ch1 disabled after length runs out")
 }
 
 func TestAPULengthCounterDoesNotDecrementBelowZero(t *testing.T) {
@@ -468,13 +468,13 @@ func TestAPULengthCounterDoesNotDecrementBelowZero(t *testing.T) {
 	apu.WriteRegister(0xFF14, 0xC0)
 
 	apu.Step(8192)
-	require.False(t, apu.ch1On, "Ch1 disabled")
+	require.False(t, apu.Ch1On, "Ch1 disabled")
 
 	for range 10 {
 		apu.Step(8192)
 	}
-	require.Equal(t, 0, apu.lengthCnt[0], "Ch1 length counter stays at 0 (doesn't go negative)")
-	require.False(t, apu.ch1On, "Ch1 stays off")
+	require.Equal(t, 0, apu.LengthCnt[0], "Ch1 length counter stays at 0 (doesn't go negative)")
+	require.False(t, apu.Ch1On, "Ch1 stays off")
 }
 
 // ---------------------------------------------------------------------------
@@ -486,10 +486,10 @@ func TestAPUSweepFiresOnSteps2And6(t *testing.T) {
 	apu.WriteRegister(0xFF26, 0x80) // APU on
 
 	apu.Step(8192 * 3) // steps 0, 1, 2
-	require.Equal(t, 3, apu.seqStep, "Step 3 after 3 advances (step 2 sweep just fired)")
+	require.Equal(t, 3, apu.SeqStep, "Step 3 after 3 advances (step 2 sweep just fired)")
 
 	apu.Step(8192 * 3)
-	require.Equal(t, 6, apu.seqStep, "Step 6 after 6 advances (step 6 sweep just fired)")
+	require.Equal(t, 6, apu.SeqStep, "Step 6 after 6 advances (step 6 sweep just fired)")
 }
 
 func TestAPUEnvelopeFiresOnStep7(t *testing.T) {
@@ -497,7 +497,7 @@ func TestAPUEnvelopeFiresOnStep7(t *testing.T) {
 	apu.WriteRegister(0xFF26, 0x80) // APU on
 
 	apu.Step(8192 * 7)
-	require.Equal(t, 7, apu.seqStep, "Step 7 after 7 advances (envelope fires here)")
+	require.Equal(t, 7, apu.SeqStep, "Step 7 after 7 advances (envelope fires here)")
 }
 
 func TestAPUStepSweepEnvelopeSequence(t *testing.T) {
@@ -508,9 +508,9 @@ func TestAPUStepSweepEnvelopeSequence(t *testing.T) {
 
 	for i, expectedStep := range stepSequence {
 		apu.Step(8192)
-		require.Equal(t, expectedStep, apu.seqStep,
+		require.Equal(t, expectedStep, apu.SeqStep,
 			"Step %d after %d T-cycles (expected step %d)",
-			apu.seqStep, (i+1)*8192, expectedStep)
+			apu.SeqStep, (i+1)*8192, expectedStep)
 	}
 }
 
@@ -519,10 +519,10 @@ func TestAPUTriggerDoesNotFireWithoutBit7(t *testing.T) {
 	apu.WriteRegister(0xFF26, 0x80) // APU on
 
 	apu.WriteRegister(0xFF14, 0x40)
-	require.Equal(t, 0, apu.lengthCnt[0], "Ch1 length counter not loaded (no trigger)")
+	require.Equal(t, 0, apu.LengthCnt[0], "Ch1 length counter not loaded (no trigger)")
 
 	apu.WriteRegister(0xFF14, 0x80)
-	require.NotEqual(t, 0, apu.lengthCnt[0], "Ch1 length counter loaded on trigger")
+	require.NotEqual(t, 0, apu.LengthCnt[0], "Ch1 length counter loaded on trigger")
 }
 
 func TestAPULengthCounterClearedOnAPUOff(t *testing.T) {
@@ -533,10 +533,10 @@ func TestAPULengthCounterClearedOnAPUOff(t *testing.T) {
 
 	apu.WriteRegister(0xFF11, 0x00)
 	apu.WriteRegister(0xFF14, 0xC0) // trigger + enable
-	require.Equal(t, 64, apu.lengthCnt[0], "Ch1 length counter loaded")
+	require.Equal(t, 64, apu.LengthCnt[0], "Ch1 length counter loaded")
 
 	apu.WriteRegister(0xFF26, 0x70)
-	require.Equal(t, 0, apu.lengthCnt[0], "Ch1 length counter cleared on APU off")
+	require.Equal(t, 0, apu.LengthCnt[0], "Ch1 length counter cleared on APU off")
 }
 
 // ---------------------------------------------------------------------------
@@ -618,7 +618,7 @@ func TestPulseCh1DutyOutput12p5(t *testing.T) {
 	apu.WriteRegister(0xFF13, 0xFF)
 	apu.WriteRegister(0xFF14, 0x87) // freq hi=7, trigger
 
-	require.True(t, apu.ch1On, "CH1 on after trigger")
+	require.True(t, apu.Ch1On, "CH1 on after trigger")
 
 	// Duty 0: [0,0,0,0,0,0,0,1]. Period = 4 T-cycles.
 	// Check initial position before first step.
@@ -689,7 +689,7 @@ func TestPulseCh1SampleZeroWhenOff(t *testing.T) {
 	apu := NewAPU(&testAPUMMU{})
 	apu.WriteRegister(0xFF26, 0x80)
 
-	require.False(t, apu.ch1On, "CH1 off initially")
+	require.False(t, apu.Ch1On, "CH1 off initially")
 	require.Equal(t, 0, apu.GetSampleCh1(), "CH1 sample 0 when off")
 }
 
@@ -702,7 +702,7 @@ func TestPulseCh2DutyOutput(t *testing.T) {
 	apu.WriteRegister(0xFF18, 0xFF)
 	apu.WriteRegister(0xFF19, 0x87) // trigger
 
-	require.True(t, apu.ch2On, "CH2 on after trigger")
+	require.True(t, apu.Ch2On, "CH2 on after trigger")
 
 	require.Equal(t, 0, apu.GetSampleCh2(), "CH2 pos 0 (duty 0)")
 	expected := []int{0, 0, 0, 0, 0, 0, 15}
@@ -716,7 +716,7 @@ func TestPulseCh2SampleZeroWhenOff(t *testing.T) {
 	apu := NewAPU(&testAPUMMU{})
 	apu.WriteRegister(0xFF26, 0x80)
 
-	require.False(t, apu.ch2On, "CH2 off initially")
+	require.False(t, apu.Ch2On, "CH2 off initially")
 	require.Equal(t, 0, apu.GetSampleCh2(), "CH2 sample 0 when off")
 }
 
@@ -756,7 +756,7 @@ func TestPulseEnvelopeDecrease(t *testing.T) {
 	apu.WriteRegister(0xFF13, 0xFF)
 	apu.WriteRegister(0xFF14, 0x87)
 
-	require.True(t, apu.ch1On, "CH1 on after trigger")
+	require.True(t, apu.Ch1On, "CH1 on after trigger")
 	require.Equal(t, 15, apu.GetSampleCh1(), "CH1 initial volume = 15")
 
 	// Advance one full 8-step cycle (envelope fires at step 7).
@@ -773,7 +773,7 @@ func TestPulseEnvelopeIncrease(t *testing.T) {
 	apu.WriteRegister(0xFF13, 0xFF)
 	apu.WriteRegister(0xFF14, 0x87)
 
-	require.True(t, apu.ch1On, "CH1 on after trigger")
+	require.True(t, apu.Ch1On, "CH1 on after trigger")
 	require.Equal(t, 1, apu.GetSampleCh1(), "CH1 initial volume = 1")
 
 	apu.Step(65536)
@@ -872,7 +872,7 @@ func TestPulseDACOffWithZeroVolume(t *testing.T) {
 	apu.WriteRegister(0xFF13, 0xFF)
 	apu.WriteRegister(0xFF14, 0x87)
 
-	require.False(t, apu.ch1On, "CH1 stays off when DAC is off")
+	require.False(t, apu.Ch1On, "CH1 stays off when DAC is off")
 	require.Equal(t, 0, apu.GetSampleCh1(), "CH1 sample 0 when DAC off")
 }
 
@@ -885,7 +885,7 @@ func TestPulseDACOnWithNonZeroVolume(t *testing.T) {
 	apu.WriteRegister(0xFF13, 0xFF)
 	apu.WriteRegister(0xFF14, 0x87)
 
-	require.True(t, apu.ch1On, "CH1 on (volume=1, dir=1: DAC on)")
+	require.True(t, apu.Ch1On, "CH1 on (volume=1, dir=1: DAC on)")
 	require.Equal(t, 1, apu.GetSampleCh1(), "CH1 sample = volume 1 at duty 2 pos 0")
 }
 
@@ -905,7 +905,7 @@ func TestPulseSweepIncrease(t *testing.T) {
 	apu.WriteRegister(0xFF13, byte(freq&0xFF))
 	apu.WriteRegister(0xFF14, 0x80|byte(freq>>8))
 
-	require.True(t, apu.ch1On, "CH1 on after trigger")
+	require.True(t, apu.Ch1On, "CH1 on after trigger")
 	require.Equal(t, 512, apu.ch1.frequency, "CH1 initial frequency = 512")
 
 	// Sweep at step 2: shadow=512, offset=512>>1=256, new=512+256=768
@@ -946,10 +946,10 @@ func TestPulseSweepOverflowDisablesChannel(t *testing.T) {
 	apu.WriteRegister(0xFF13, byte(freq&0xFF))
 	apu.WriteRegister(0xFF14, 0x80|byte(freq>>8))
 
-	require.True(t, apu.ch1On, "CH1 on after trigger (freq=1365, check=2047, no overflow)")
+	require.True(t, apu.Ch1On, "CH1 on after trigger (freq=1365, check=2047, no overflow)")
 
 	apu.Step(8192 * 3)
-	require.False(t, apu.ch1On, "CH1 disabled by sweep overflow")
+	require.False(t, apu.Ch1On, "CH1 disabled by sweep overflow")
 	require.Equal(t, 0, apu.GetSampleCh1(), "CH1 sample 0 after overflow")
 }
 
@@ -965,7 +965,7 @@ func TestPulseSweepImmediateOverflowOnTrigger(t *testing.T) {
 	apu.WriteRegister(0xFF13, byte(freq&0xFF))
 	apu.WriteRegister(0xFF14, 0x80|byte(freq>>8))
 
-	require.True(t, apu.ch1On, "CH1 on (no overflow with freq=4, negate=1)")
+	require.True(t, apu.Ch1On, "CH1 on (no overflow with freq=4, negate=1)")
 
 	// Now trigger with immediate overflow: freq=1500, shift=1, negate=0
 	// shadow=1500, offset=750, new=1500+750=2250>2047 → overflow
@@ -974,7 +974,7 @@ func TestPulseSweepImmediateOverflowOnTrigger(t *testing.T) {
 	apu.WriteRegister(0xFF13, byte(freq&0xFF))
 	apu.WriteRegister(0xFF14, 0x80|byte(freq>>8))
 
-	require.False(t, apu.ch1On,
+	require.False(t, apu.Ch1On,
 		"CH1 disabled by immediate sweep overflow (1500+750>2047)")
 }
 
@@ -1010,7 +1010,7 @@ func TestPulseCh1SampleVolumeScaling(t *testing.T) {
 	apu.WriteRegister(0xFF13, 0xFF)
 	apu.WriteRegister(0xFF14, 0x87)
 
-	require.True(t, apu.ch1On, "CH1 on after trigger")
+	require.True(t, apu.Ch1On, "CH1 on after trigger")
 	require.Equal(t, 7, apu.GetSampleCh1(), "CH1 sample = 7 (volume 7)")
 }
 
@@ -1122,7 +1122,7 @@ func TestNoiseTriggerResetsLFSR(t *testing.T) {
 	apu.WriteRegister(0xFF21, 0xF0) // NR42: volume 15
 	apu.WriteRegister(0xFF23, 0x80) // NR44: trigger
 
-	require.True(t, apu.ch4On, "CH4 on after trigger")
+	require.True(t, apu.Ch4On, "CH4 on after trigger")
 	require.Equal(t, uint16(0x7FFF), apu.ch4.lfsr, "LFSR reset to 0x7FFF on trigger")
 }
 
@@ -1194,7 +1194,7 @@ func TestNoiseOutputBitControlsSample(t *testing.T) {
 	apu.WriteRegister(0xFF22, 0x00) // NR43: period=8
 	apu.WriteRegister(0xFF23, 0x80) // trigger
 
-	require.True(t, apu.ch4On)
+	require.True(t, apu.Ch4On)
 	require.Equal(t, 15, apu.GetSampleCh4(), "Sample = volume when LFSR bit 0 = 1")
 
 	// After 14 more LFSR steps, bit 0 is still 1.
@@ -1213,7 +1213,7 @@ func TestNoiseOutputBitControlsSample(t *testing.T) {
 func TestNoiseSampleZeroWhenOff(t *testing.T) {
 	apu := NewAPU(&testAPUMMU{})
 	apu.WriteRegister(0xFF26, 0x80)
-	require.False(t, apu.ch4On)
+	require.False(t, apu.Ch4On)
 	require.Equal(t, 0, apu.GetSampleCh4())
 }
 
@@ -1225,7 +1225,7 @@ func TestNoiseSampleZeroWhenVolumeZero(t *testing.T) {
 	apu.WriteRegister(0xFF21, 0x00) // NR42: volume 0
 	apu.WriteRegister(0xFF23, 0x80) // trigger
 
-	require.False(t, apu.ch4On, "CH4 off when DAC off")
+	require.False(t, apu.Ch4On, "CH4 off when DAC off")
 	require.Equal(t, 0, apu.GetSampleCh4())
 }
 
@@ -1238,7 +1238,7 @@ func TestNoiseEnvelopeDecrease(t *testing.T) {
 	apu.WriteRegister(0xFF22, 0x00)
 	apu.WriteRegister(0xFF23, 0x80) // trigger
 
-	require.True(t, apu.ch4On)
+	require.True(t, apu.Ch4On)
 	require.Equal(t, 15, apu.GetSampleCh4())
 
 	apu.Step(65536) // one envelope cycle
@@ -1254,7 +1254,7 @@ func TestNoiseEnvelopeIncrease(t *testing.T) {
 	apu.WriteRegister(0xFF22, 0x00)
 	apu.WriteRegister(0xFF23, 0x80) // trigger
 
-	require.True(t, apu.ch4On)
+	require.True(t, apu.Ch4On)
 	require.Equal(t, 1, apu.GetSampleCh4())
 
 	apu.Step(65536)
@@ -1305,7 +1305,7 @@ func TestWaveCh3ActiveAfterTrigger(t *testing.T) {
 	apu.WriteRegister(0xFF1D, 0x00)
 	apu.WriteRegister(0xFF1E, 0x80) // trigger ch3
 
-	require.True(t, apu.ch3On, "CH3 on after trigger")
+	require.True(t, apu.Ch3On, "CH3 on after trigger")
 	require.True(t, apu.ch3Active(), "CH3 active (DAC on + channel on)")
 }
 
@@ -1317,7 +1317,7 @@ func TestWaveCh3DACOffPreventsActivation(t *testing.T) {
 	apu.WriteRegister(0xFF1D, 0x00)
 	apu.WriteRegister(0xFF1E, 0x80) // trigger ch3
 
-	require.False(t, apu.ch3On, "CH3 stays off when NR30 DAC is off")
+	require.False(t, apu.Ch3On, "CH3 stays off when NR30 DAC is off")
 	require.False(t, apu.ch3Active(), "CH3 not active when DAC off")
 }
 
@@ -1328,10 +1328,10 @@ func TestWaveCh3DACOffDuringOperation(t *testing.T) {
 	apu.WriteRegister(0xFF1D, 0x00)
 	apu.WriteRegister(0xFF1E, 0x80) // trigger
 
-	require.True(t, apu.ch3On)
+	require.True(t, apu.Ch3On)
 
 	apu.WriteRegister(0xFF1A, 0x00) // DAC off
-	require.False(t, apu.ch3On, "CH3 turned off when DAC turned off")
+	require.False(t, apu.Ch3On, "CH3 turned off when DAC turned off")
 }
 
 func TestWaveCh3GetSampleZeroWhenOff(t *testing.T) {

@@ -543,9 +543,9 @@ func (m *MemoryBus) DumpFullState() FullState {
 		SC:           m.sc,
 
 		CPU:  m.cpuRef.GetState(),
-		PPU:  m.ppu.GetFullState(),
-		Timer: m.timer.GetFullState(),
-		APU:  m.apu.GetFullState(),
+		PPU:  m.ppu.GetState(),
+		Timer: m.timer.GetState(),
+		APU:  m.apu.GetState(),
 
 		MBC:        m.Cartridge.GetState(),
 		BatteryRAM: m.Cartridge.SaveRAM(),
@@ -573,9 +573,9 @@ func (m *MemoryBus) LoadFullState(s FullState) {
 	m.sc = s.SC
 
 	m.cpuRef.SetState(s.CPU)
-	m.ppu.SetFullState(s.PPU)
-	m.timer.SetFullState(s.Timer)
-	m.apu.SetFullState(s.APU)
+	m.ppu.SetState(s.PPU)
+	m.timer.SetState(s.Timer)
+	m.apu.SetState(s.APU)
 
 	m.Cartridge.SetState(s.MBC)
 	if len(s.BatteryRAM) > 0 && m.Cartridge.HasBattery() {

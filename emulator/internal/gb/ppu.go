@@ -69,38 +69,13 @@ type spriteEntry struct {
 	attrs byte // Attributes
 }
 
-// PPUCore is the concrete PPU timing state machine with background, window & sprite rendering.
+// PPUCore is the concrete PPU timing state machine.
 type PPUCore struct {
-	mmu  MMU
+	*PPUState
+	mmu MMU
 
-	dotCounter int
-	ly         byte
-	lyc        byte
-	stat       byte
-	lcdc       byte
-	frameCtr   int
-
-	scy    byte
-	scx    byte
-	bgp    byte
-	obp0   byte
-	obp1   byte
-	wx     byte
-	wy     byte
-
-	isRunning  bool
-	screen     [160][144]byte
-	scanlineRendered bool
-	mode2End   int
-	mode3End   int
-
-	// Sprite / OAM state (per scanline)
-	oamScanned bool
+	// Per-scanline sprite cache — rebuilt every scanline, not part of save state.
 	oamSprites []spriteEntry
-
-	// firstFrameBlank is set when LCD is enabled (LCDC bit 7 rising edge).
-	// While set, the screen remains blank (all white) for one full frame.
-	firstFrameBlank bool
 }
 
 var _ PPU = (*PPUCore)(nil)
@@ -108,119 +83,121 @@ var _ PPU = (*PPUCore)(nil)
 // NewPPU creates a new PPU instance.
 func NewPPU(mmu MMU) *PPUCore {
 	ppu := &PPUCore{
-		mmu:  mmu,
-		lcdc: 0x00,
-		bgp:  0xE4,
-		obp0: 0xE4,
-		obp1: 0xE4,
+		PPUState: &PPUState{
+			LCDC: 0x00,
+			BGP:  0xE4,
+			OBP0: 0xE4,
+			OBP1: 0xE4,
+		},
+		mmu: mmu,
 	}
 	ppu.Reset()
 	return ppu
 }
 
 func (p *PPUCore) Reset() {
-	p.dotCounter = 0
-	p.ly = 0
-	p.stat &^= 0x07
-	p.stat |= ppuModeOAM << 0
-	p.isRunning = true
-	p.frameCtr = 0
-	p.scanlineRendered = false
-	p.mode2End = oamSearchCycles
-	p.mode3End = oamSearchCycles + vramDrawCycles
+	p.DotCounter = 0
+	p.LY = 0
+	p.Stat &^= 0x07
+	p.Stat |= ppuModeOAM << 0
+	p.IsRunning = true
+	p.FrameCtr = 0
+	p.ScanlineRendered = false
+	p.Mode2End = oamSearchCycles
+	p.Mode3End = oamSearchCycles + vramDrawCycles
 	for x := range 160 {
 		for y := range 144 {
-			p.screen[x][y] = 0
+			p.Screen[x][y] = 0
 		}
 	}
 }
 
 func (p *PPUCore) Step(cycles int) {
 	// When LCD is disabled (LCDC bit 7 = 0), LY must be 0 and must not increment.
-	if p.lcdc&lcdcBitLCDEnable == 0 {
-		p.ly = 0
+	if p.LCDC&lcdcBitLCDEnable == 0 {
+		p.LY = 0
 		return
 	}
 	if cycles <= 0 {
 		return
 	}
 	for cycles > 0 {
-		remaining := scanlineCycles - p.dotCounter
+		remaining := scanlineCycles - p.DotCounter
 		step := cycles
 		if step > remaining {
 			step = remaining
 		}
-		prevDot := p.dotCounter
+		prevDot := p.DotCounter
 
-		p.dotCounter += step
+		p.DotCounter += step
 		cycles -= step
 		p.updateMode()
 
 		// Detect OAM search crossing to scan sprites for this scanline.
-		crossedOAM := prevDot < p.mode2End && p.dotCounter > 0
-		if p.ly < visibleScanlines && !p.oamScanned && crossedOAM {
+		crossedOAM := prevDot < p.Mode2End && p.DotCounter > 0
+		if p.LY < visibleScanlines && !p.OAMScanned && crossedOAM {
 			if p.mmu != nil {
 				p.scanOAM()
 			}
-			p.oamScanned = true
+			p.OAMScanned = true
 		}
 
 		// Detect if we crossed through the VRAM drawing period [mode2End, mode3End).
-		crossedVRAM := prevDot < p.mode3End && p.dotCounter > p.mode2End
-		if p.ly < visibleScanlines && !p.scanlineRendered && crossedVRAM {
+		crossedVRAM := prevDot < p.Mode3End && p.DotCounter > p.Mode2End
+		if p.LY < visibleScanlines && !p.ScanlineRendered && crossedVRAM {
 			if p.mmu != nil {
-				if p.firstFrameBlank {
+				if p.FirstFrameBlank {
 					// First frame after LCD enable — render blank (all white).
 				for x := range 160 {
-						p.screen[x][p.ly] = 0
+						p.Screen[x][p.LY] = 0
 					}
 				} else {
 					p.renderBackgroundScanline()
 					p.renderWindowScanline()
-					if p.lcdc&lcdcBitOBJEnable != 0 {
+					if p.LCDC&lcdcBitOBJEnable != 0 {
 						p.renderSprites()
 					}
 				}
 			}
-			p.scanlineRendered = true
+			p.ScanlineRendered = true
 		}
-		if p.dotCounter >= scanlineCycles {
+		if p.DotCounter >= scanlineCycles {
 			p.advanceScanline()
 		}
 	}
 }
 
 func (p *PPUCore) advanceScanline() {
-	p.dotCounter = 0
-	p.ly++
-	p.scanlineRendered = false
-	p.oamScanned = false
-	if p.ly >= totalScanlines {
-		p.ly = 0
-		p.frameCtr++
+	p.DotCounter = 0
+	p.LY++
+	p.ScanlineRendered = false
+	p.OAMScanned = false
+	if p.LY >= totalScanlines {
+		p.LY = 0
+		p.FrameCtr++
 		// End first-frame blank period after one complete frame.
-		p.firstFrameBlank = false
+		p.FirstFrameBlank = false
 	}
-	p.mode2End = oamSearchCycles
-	p.mode3End = oamSearchCycles + vramDrawCycles
+	p.Mode2End = oamSearchCycles
+	p.Mode3End = oamSearchCycles + vramDrawCycles
 	p.updateMode()
 
 	// VBlank interrupt: always fires when entering VBlank (LY becomes 144).
-	if p.ly == 144 && p.mmu != nil {
+	if p.LY == 144 && p.mmu != nil {
 		p.mmu.WriteIF(p.mmu.ReadIF() | 0x01)
 	}
 }
 
 func (p *PPUCore) updateMode() int {
-	oldMode := p.stat & 0x03
-	oldLYCoinc := p.stat&statBitLYCoinc != 0
+	oldMode := p.Stat & 0x03
+	oldLYCoinc := p.Stat&statBitLYCoinc != 0
 
 	var mode int
-	if p.ly < visibleScanlines {
+	if p.LY < visibleScanlines {
 	switch {
-	case p.dotCounter < p.mode2End:
+	case p.DotCounter < p.Mode2End:
 		mode = ppuModeOAM
-	case p.dotCounter < p.mode3End:
+	case p.DotCounter < p.Mode3End:
 		mode = ppuModeVRAM
 	default:
 		mode = ppuModeHBlank
@@ -228,18 +205,18 @@ func (p *PPUCore) updateMode() int {
 	} else {
 		mode = ppuModeVBlank
 	}
-	p.stat &^= 0x03
-	p.stat |= byte(mode) & 0x03
+	p.Stat &^= 0x03
+	p.Stat |= byte(mode) & 0x03
 
-	newLYCoinc := p.ly == p.lyc
+	newLYCoinc := p.LY == p.LYC
 	if newLYCoinc {
-		p.stat |= statBitLYCoinc
+		p.Stat |= statBitLYCoinc
 	} else {
-		p.stat &^= statBitLYCoinc
+		p.Stat &^= statBitLYCoinc
 	}
 
 	// Trigger STAT interrupt (IF bit 1) on LYC=LY rising edge.
-	if !oldLYCoinc && newLYCoinc && p.stat&statBitIntLYC != 0 {
+	if !oldLYCoinc && newLYCoinc && p.Stat&statBitIntLYC != 0 {
 		if p.mmu != nil {
 			p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
 		}
@@ -251,15 +228,15 @@ func (p *PPUCore) updateMode() int {
 	if oldMode != newMode {
 		switch mode {
 		case ppuModeHBlank:
-			if p.stat&statBitIntMode0 != 0 && p.mmu != nil {
+			if p.Stat&statBitIntMode0 != 0 && p.mmu != nil {
 				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
 			}
 		case ppuModeVBlank:
-			if p.stat&statBitIntMode1 != 0 && p.mmu != nil {
+			if p.Stat&statBitIntMode1 != 0 && p.mmu != nil {
 				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
 			}
 		case ppuModeOAM:
-			if p.stat&statBitIntMode2 != 0 && p.mmu != nil {
+			if p.Stat&statBitIntMode2 != 0 && p.mmu != nil {
 				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
 			}
 		}
@@ -269,14 +246,14 @@ func (p *PPUCore) updateMode() int {
 }
 
 func (p *PPUCore) tileMapBase() uint16 {
-	if p.lcdc&lcdcBitBGTileMap != 0 {
+	if p.LCDC&lcdcBitBGTileMap != 0 {
 		return 0x9C00
 	}
 	return 0x9800
 }
 
 func (p *PPUCore) tileDataAddress(tileIndex byte) uint16 {
-	if p.lcdc&lcdcBitBGTileData != 0 {
+	if p.LCDC&lcdcBitBGTileData != 0 {
 		return 0x8000 + uint16(tileIndex)*16
 	}
 	return 0x9000 + uint16(int8(tileIndex))*16
@@ -301,15 +278,15 @@ func (p *PPUCore) applyPalette(pixel byte, palette byte) byte {
 }
 
 func (p *PPUCore) renderBackgroundScanline() {
-	if p.lcdc&lcdcBitBGEnable == 0 {
+	if p.LCDC&lcdcBitBGEnable == 0 {
 		for x := range 160 {
-			p.screen[x][p.ly] = 0
+			p.Screen[x][p.LY] = 0
 		}
 		return
 	}
-	y := int(p.ly)
-	scrollY := int(p.scy)
-	scrollX := int(p.scx)
+	y := int(p.LY)
+	scrollY := int(p.SCY)
+	scrollX := int(p.SCX)
 	mapBase := p.tileMapBase()
 	for x := range 160 {
 		tileMapX := (x + scrollX) / 8
@@ -321,12 +298,12 @@ func (p *PPUCore) renderBackgroundScanline() {
 		tileRow := (y + scrollY) % 8
 		pixels := p.decodeTileRow(tileAddr, tileRow)
 		tileCol := (x + scrollX) % 8
-		p.screen[x][y] = p.applyPalette(pixels[tileCol], p.bgp)
+		p.Screen[x][y] = p.applyPalette(pixels[tileCol], p.BGP)
 	}
 }
 
 func (p *PPUCore) windowTileMapBase() uint16 {
-	if p.lcdc&lcdcBitWinTileMap != 0 {
+	if p.LCDC&lcdcBitWinTileMap != 0 {
 		return 0x9C00
 	}
 	return 0x9800
@@ -335,15 +312,15 @@ func (p *PPUCore) windowTileMapBase() uint16 {
 func (p *PPUCore) renderWindowScanline() {
 	// When LCDC bit 0 (BG/Window enable) is 0, both BG and Window are disabled
 	// regardless of bit 5 (Window enable).
-	if p.lcdc&lcdcBitBGEnable == 0 {
+	if p.LCDC&lcdcBitBGEnable == 0 {
 		return
 	}
-	if p.lcdc&lcdcBitWinEnable == 0 {
+	if p.LCDC&lcdcBitWinEnable == 0 {
 		return
 	}
-	y := int(p.ly)
-	winY := int(p.wy)
-	winX := int(p.wx) - 7
+	y := int(p.LY)
+	winY := int(p.WY)
+	winX := int(p.WX) - 7
 	if y >= visibleScanlines || y < winY {
 		return
 	}
@@ -362,7 +339,7 @@ func (p *PPUCore) renderWindowScanline() {
 		tileIndex := bus.ReadVRAMDirect(tileMapAddr)
 		tileAddr := p.tileDataAddress(tileIndex)
 		pixels := p.decodeTileRow(tileAddr, windowRowInTile)
-		p.screen[x][y] = p.applyPalette(pixels[windowColInTile], p.bgp)
+		p.Screen[x][y] = p.applyPalette(pixels[windowColInTile], p.BGP)
 	}
 }
 
@@ -372,11 +349,11 @@ func (p *PPUCore) scanOAM() {
 	p.oamSprites = p.oamSprites[:0]
 
 	spriteHeight := 8
-	if p.lcdc&lcdcBitOBJSize != 0 {
+	if p.LCDC&lcdcBitOBJSize != 0 {
 		spriteHeight = 16
 	}
 
-	ly := int(p.ly)
+	ly := int(p.LY)
 	for i := 0; i < 40 && len(p.oamSprites) < 10; i++ {
 		base := uint16(0xFE00 + i*4)
 		// Use ReadOAMDirect to bypass MMU mode checking — the PPU's own OAM
@@ -414,11 +391,11 @@ func (p *PPUCore) renderSprites() {
 		return
 	}
 	spriteHeight := 8
-	if p.lcdc&lcdcBitOBJSize != 0 {
+	if p.LCDC&lcdcBitOBJSize != 0 {
 		spriteHeight = 16
 	}
 
-	ly := int(p.ly)
+	ly := int(p.LY)
 
 	for i := len(p.oamSprites) - 1; i >= 0; i-- {
 		s := p.oamSprites[i]
@@ -471,19 +448,19 @@ func (p *PPUCore) renderSprites() {
 			// Apply palette (OBP0 or OBP1).
 			var palette byte
 			if s.attrs&spriteAttrPaletteDMG != 0 {
-				palette = p.obp1
+				palette = p.OBP1
 			} else {
-				palette = p.obp0
+				palette = p.OBP0
 			}
 			mappedPixel := p.applyPalette(pixel, palette)
 
 			// Priority check: if bit 7 set AND BG pixel is non-zero, BG wins.
-			bgPixel := p.screen[screenX][ly]
+			bgPixel := p.Screen[screenX][ly]
 			if s.attrs&spriteAttrPriority != 0 && bgPixel != 0 {
 				continue
 			}
 
-			p.screen[screenX][ly] = mappedPixel
+			p.Screen[screenX][ly] = mappedPixel
 		}
 	}
 }
@@ -492,7 +469,7 @@ func (p *PPUCore) renderSprites() {
 // This is extracted from the STAT register bits 0-1 for direct use by the MMU
 // to enforce OAM/VRAM access blocking.
 func (p *PPUCore) GetMode() int {
-	return int(p.stat & 0x03)
+	return int(p.Stat & 0x03)
 }
 
 // GetOAMRow returns the OAM row index (0-19) that the PPU is currently
@@ -501,114 +478,53 @@ func (p *PPUCore) GetMode() int {
 // 0xFE00-0xFE07; row 19 covers objects 38-39 at 0xFE98-0xFE9F.
 // Only meaningful during ppuModeOAM; returns a stale value otherwise.
 func (p *PPUCore) GetOAMRow() int {
-	return p.dotCounter / 4
+	return p.DotCounter / 4
 }
 
 func (p *PPUCore) GetState() PPUState {
-	mode := p.GetMode()
-	return PPUState{
-		Mode:       mode,
-		LY:         p.ly,
-		LCDC:       p.lcdc,
-		STAT:       p.stat,
-		FrameCount: p.frameCtr,
-	}
+	p.Mode = p.GetMode()
+	return *p.PPUState
 }
 
 func (p *PPUCore) SetState(s PPUState) {
-	p.ly = s.LY
-	p.lcdc = s.LCDC
-	p.stat = s.STAT
-	p.frameCtr = s.FrameCount
+	*p.PPUState = s
+	p.oamSprites = nil // cleared — re-scanned on next OAM search
 	p.updateMode()
 }
 
-// GetFullState returns all PPU internal state for save-state serialisation.
-func (p *PPUCore) GetFullState() PPUFullState {
-	return PPUFullState{
-		Mode:       p.GetMode(),
-		LY:         p.ly,
-		LYC:        p.lyc,
-		STAT:       p.stat,
-		LCDC:       p.lcdc,
-		FrameCount: p.frameCtr,
-		DotCounter: p.dotCounter,
-		SCY:        p.scy,
-		SCX:        p.scx,
-		BGP:        p.bgp,
-		OBP0:       p.obp0,
-		OBP1:       p.obp1,
-		WX:         p.wx,
-		WY:         p.wy,
-		IsRunning:        p.isRunning,
-		ScanlineRendered: p.scanlineRendered,
-		Mode2End:         p.mode2End,
-		Mode3End:         p.mode3End,
-		OAMScanned:       p.oamScanned,
-		FirstFrameBlank:  p.firstFrameBlank,
-		Screen:           p.screen,
-	}
-}
-
-// SetFullState restores all PPU internal state from a PPUFullState.
-func (p *PPUCore) SetFullState(s PPUFullState) {
-	p.ly = s.LY
-	p.lyc = s.LYC
-	p.stat = s.STAT
-	p.lcdc = s.LCDC
-	p.frameCtr = s.FrameCount
-	p.dotCounter = s.DotCounter
-	p.scy = s.SCY
-	p.scx = s.SCX
-	p.bgp = s.BGP
-	p.obp0 = s.OBP0
-	p.obp1 = s.OBP1
-	p.wx = s.WX
-	p.wy = s.WY
-	p.isRunning = s.IsRunning
-	p.scanlineRendered = s.ScanlineRendered
-	p.mode2End = s.Mode2End
-	p.mode3End = s.Mode3End
-	p.oamScanned = s.OAMScanned
-	p.firstFrameBlank = s.FirstFrameBlank
-	p.screen = s.Screen
-	p.oamSprites = nil // cleared — re-scanned on next OAM search
-	p.stat = (p.stat & 0xFC) | byte(s.Mode)
-}
-
 func (p *PPUCore) GetScreen() [160][144]byte {
-	return p.screen
+	return p.Screen
 }
 
 func (p *PPUCore) SetLYC(val byte) {
-	p.lyc = val
+	p.LYC = val
 	p.updateMode()
 }
 
 func (p *PPUCore) ReadRegister(addr uint16) byte {
 	switch addr {
 	case 0xFF40:
-		return p.lcdc
+		return p.LCDC
 	case 0xFF41:
-		return p.stat | 0x80
+		return p.Stat | 0x80
 	case 0xFF42:
-		return p.scy
+		return p.SCY
 	case 0xFF43:
-		return p.scx
+		return p.SCX
 	case 0xFF44:
-		return p.ly
+		return p.LY
 	case 0xFF45:
-		return p.lyc
+		return p.LYC
 	case 0xFF47:
-		return p.bgp
+		return p.BGP
 	case 0xFF48:
-		return p.obp0
+		return p.OBP0
 	case 0xFF49:
-		return p.obp1
+		return p.OBP1
 	case 0xFF4A:
-		return p.wy
+		return p.WY
 	case 0xFF4B:
-		return p.wx
+		return p.WX
 	default:
 		return 0xFF
 	}
@@ -617,62 +533,62 @@ func (p *PPUCore) ReadRegister(addr uint16) byte {
 func (p *PPUCore) WriteRegister(addr uint16, val byte) {
 	switch addr {
 	case 0xFF40:
-		oldEnable := (p.lcdc & lcdcBitLCDEnable) != 0
+		oldEnable := (p.LCDC & lcdcBitLCDEnable) != 0
 		newEnable := (val & lcdcBitLCDEnable) != 0
-		p.lcdc = val
-		p.isRunning = newEnable
-		if !p.isRunning {
-			p.ly = 0
-			p.dotCounter = 0
-			p.stat &^= 0x03
-			p.scanlineRendered = false
-			p.firstFrameBlank = false
+		p.LCDC = val
+		p.IsRunning = newEnable
+		if !p.IsRunning {
+			p.LY = 0
+			p.DotCounter = 0
+			p.Stat &^= 0x03
+			p.ScanlineRendered = false
+			p.FirstFrameBlank = false
 		} else if !oldEnable && newEnable {
 			// LCD just turned on — first frame must be blank.
-			p.firstFrameBlank = true
+			p.FirstFrameBlank = true
 			// Clear screen to white (palette index 0).
 			for x := range 160 {
 				for y := range 144 {
-					p.screen[x][y] = 0
+					p.Screen[x][y] = 0
 				}
 			}
 		}
 	case 0xFF41:
-		p.stat = (p.stat & 0x07) | (val & 0x78)
+		p.Stat = (p.Stat & 0x07) | (val & 0x78)
 		// Writing to STAT can immediately trigger a STAT interrupt if the newly
 		// enabled interrupt conditions match the current PPU state (LY==LYC for
 		// bit 6, or the current mode matches the mode-specific enable bits 3-5).
 		// This is documented DMG/LR35902 behavior.
 		if p.mmu != nil {
-			if p.stat&statBitIntLYC != 0 && p.ly == p.lyc {
+			if p.Stat&statBitIntLYC != 0 && p.LY == p.LYC {
 				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
 			}
-			if p.stat&statBitIntMode2 != 0 && p.GetMode() == ppuModeOAM {
+			if p.Stat&statBitIntMode2 != 0 && p.GetMode() == ppuModeOAM {
 				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
 			}
-			if p.stat&statBitIntMode1 != 0 && p.GetMode() == ppuModeVBlank {
+			if p.Stat&statBitIntMode1 != 0 && p.GetMode() == ppuModeVBlank {
 				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
 			}
-			if p.stat&statBitIntMode0 != 0 && p.GetMode() == ppuModeHBlank {
+			if p.Stat&statBitIntMode0 != 0 && p.GetMode() == ppuModeHBlank {
 				p.mmu.WriteIF(p.mmu.ReadIF() | 0x02)
 			}
 		}
 	case 0xFF42:
-		p.scy = val
+		p.SCY = val
 	case 0xFF43:
-		p.scx = val
+		p.SCX = val
 	case 0xFF45:
-		p.lyc = val
+		p.LYC = val
 		p.updateMode()
 	case 0xFF47:
-		p.bgp = val
+		p.BGP = val
 	case 0xFF48:
-		p.obp0 = val
+		p.OBP0 = val
 	case 0xFF49:
-		p.obp1 = val
+		p.OBP1 = val
 	case 0xFF4A:
-		p.wy = val
+		p.WY = val
 	case 0xFF4B:
-		p.wx = val
+		p.WX = val
 	}
 }

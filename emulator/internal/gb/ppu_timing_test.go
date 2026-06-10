@@ -221,7 +221,7 @@ func TestPPULYEqualsLYC_Coincidence(t *testing.T) {
 
 	state := ppu.GetState()
 	assert.Equal(t, byte(5), state.LY, "LY should be 5")
-	assertBitSet(t, state.STAT, 2, "LYC=LY coincidence flag (bit 2) should be set when LY=LYC=5")
+	assertBitSet(t, state.Stat, 2, "LYC=LY coincidence flag (bit 2) should be set when LY=LYC=5")
 }
 
 func TestPPULYEqualsLYC_NoCoincidence(t *testing.T) {
@@ -234,7 +234,7 @@ func TestPPULYEqualsLYC_NoCoincidence(t *testing.T) {
 
 	state := ppu.GetState()
 	assert.Equal(t, byte(1), state.LY, "LY should be 1")
-	assertBitNotSet(t, state.STAT, 2, "LYC=LY coincidence flag should be clear when LY≠LYC")
+	assertBitNotSet(t, state.Stat, 2, "LYC=LY coincidence flag should be clear when LY≠LYC")
 }
 
 func TestPPULYEqualsLYC_DifferentLYC(t *testing.T) {
@@ -249,7 +249,7 @@ func TestPPULYEqualsLYC_DifferentLYC(t *testing.T) {
 
 	state := ppu.GetState()
 	assert.Equal(t, byte(10), state.LY, "LY should be 10")
-	assertBitSet(t, state.STAT, 2, "LYC=LY coincidence flag should be set when LY=10, LYC=10")
+	assertBitSet(t, state.Stat, 2, "LYC=LY coincidence flag should be set when LY=10, LYC=10")
 }
 
 // --- Frame duration ---

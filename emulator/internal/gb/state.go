@@ -1,31 +1,25 @@
 package gb
 
-// CPUState is a snapshot of CPU registers and flags.
+// CPUState is the canonical CPU state containing all registers, flags,
+// interrupt state, and cycle counter. Embedded in Core and EmulatorState.
 type CPUState struct {
 	AF, BC, DE, HL, SP, PC uint16
-	IME                     bool
-	Halted                  bool
-	Stopped                 bool
-	Cycles                  uint64
+	IME          bool
+	IMEScheduled int  // EI schedule: 2=just set, 1=enable after this instr, 0=active
+	Halted       bool
+	Stopped      bool
+	HaltBug      bool // HALT bug: prevent PC increment on next opcode fetch
+	Cycles       uint64
 }
 
-// PPUState is a snapshot of PPU registers and timing (basic, for dashboard).
+// PPUState is the canonical PPU state with all registers, timing, and framebuffer.
 type PPUState struct {
 	Mode       int
 	LY         byte
-	LCDC       byte
-	STAT       byte
-	FrameCount int
-}
-
-// PPUFullState captures all PPU internal state for save-state serialisation.
-type PPUFullState struct {
-	Mode       int
-	LY         byte
 	LYC        byte
-	STAT       byte
+	Stat       byte  // STAT register
 	LCDC       byte
-	FrameCount int
+	FrameCtr   int   // frame counter
 
 	DotCounter int
 	SCY        byte
@@ -62,8 +56,8 @@ type MBCState struct {
 	MBCType     byte   // 0=ROMonly, 1=MBC1, 2=MBC2, 3=MBC3, 5=MBC5
 }
 
-// APUFullState captures all APU registers and internal state.
-type APUFullState struct {
+// APUState captures all APU registers, channel state, and internal state.
+type APUState struct {
 	Regs        [23]byte
 	WaveRAM     [16]byte
 	Ch1On       bool
@@ -77,10 +71,52 @@ type APUFullState struct {
 	HPOutL      int
 	HPIntoR     int16
 	HPOutR      int
+
+	// CH1 pulse channel
+	Pulse1Freq    int
+	Pulse1Accum   int
+	Pulse1DutyPos int
+	Pulse1Duty    int
+	Pulse1Vol     int
+	Pulse1EnvTimer  int
+	Pulse1EnvPeriod int
+	Pulse1EnvDir    int
+
+	// CH2 pulse channel
+	Pulse2Freq    int
+	Pulse2Accum   int
+	Pulse2DutyPos int
+	Pulse2Duty    int
+	Pulse2Vol     int
+	Pulse2EnvTimer  int
+	Pulse2EnvPeriod int
+	Pulse2EnvDir    int
+
+	// CH1 sweep unit
+	SweepShadowFreq   int
+	SweepTimer        int
+	SweepEnabled      bool
+	SweepPeriod       int
+	SweepNegate       bool
+	SweepShift        int
+
+	// CH4 noise channel
+	NoiseLFSR     uint16
+	NoiseAccum    int
+	NoiseVol      int
+	NoiseEnvTimer  int
+	NoiseEnvPeriod int
+	NoiseEnvDir    int
+
+	// CH3 wave channel
+	WaveFreq      int
+	WaveAccum     int
+	WaveSamplePos int
+	WaveOutLevel  int
 }
 
-// TimerFullState captures timer state including internal cycle counters.
-type TimerFullState struct {
+// TimerState is the canonical timer state including internal cycle counters.
+type TimerState struct {
 	DIV        byte
 	TIMA       byte
 	TMA        byte
@@ -100,9 +136,9 @@ type DMAState struct {
 // It captures everything needed to perfectly restore emulation.
 type FullState struct {
 	CPU        CPUState
-	PPU        PPUFullState
-	Timer      TimerFullState
-	APU        APUFullState
+	PPU        PPUState
+	Timer      TimerState
+	APU        APUState
 
 	// All writable memory regions
 	WRAM [0x2000]byte // 0xC000-0xDFFF (8KB)

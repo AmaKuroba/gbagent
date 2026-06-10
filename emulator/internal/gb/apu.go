@@ -309,24 +309,10 @@ func (c *waveChannel) getSample(waveRAM [16]byte) int {
 
 
 type APU struct {
-	// mmu for requesting interrupts (if needed by future channel logic)
-	mmu MMU
+	*APUState
+	mmu  MMU
 
-	// Registers stored in a flat array indexed by (addr - 0xFF10).
-	// Covers 0xFF10-0xFF26 inclusive (23 entries). The gaps at 0xFF15
-	// and 0xFF1F are part of the array but unused by real hardware.
-	regs [23]byte
-
-	// Channel 3 wave pattern RAM (0xFF30-0xFF3F).
-	waveRAM [16]byte
-
-	// Channel active status, bits 0-3 (read via NR52 bits 0-3).
-	ch1On bool
-	ch2On bool
-	ch3On bool
-	ch4On bool
-
-	// Pulse channel state for CH1 and CH2.
+	// Pulse channel state for CH1 and CH2 (logic only — state lives in APUState).
 	ch1 *pulseChannel
 	ch2 *pulseChannel
 
@@ -339,29 +325,19 @@ type APU struct {
 	// Wave channel (CH3) state.
 	ch3 *waveChannel
 
-	// Frame sequencer state.
-	cyclAccum int  // T-cycles accumulated since last sequencer tick
-	seqStep   int  // current frame sequencer step (0-7)
-
-	// Length counters for channels 1-4.
-	lengthCnt [4]int
-
-	// Audio sample buffer for mixer output.
-	// Samples stored as 16-bit signed PCM (mono interleaved as left/right pairs).
-	audioBuf    []int16 // accumulated audio samples for the current frame
-	sampleAccum int     // T-cycle accumulator for sample rate generation
-	hpLIn       int16   // high-pass filter: x[n-1] (left)
-	hpLOut      int     // high-pass filter: y[n-1] (left)
-	hpRIn       int16   // high-pass filter: x[n-1] (right)
-	hpROut      int     // high-pass filter: y[n-1] (right)
+	// Audio sample buffer — not saved, rebuilt on playback.
+	audioBuf    []int16
+	sampleAccum int
 }
 
 // NewAPU creates a new APU instance with default power-on state.
 func NewAPU(mmu MMU) *APU {
 	return &APU{
+		APUState: &APUState{
+			Regs:    [23]byte{regNR52: 0x70}, // APU off, bits 4-6 = 1
+			SeqStep: 0,
+		},
 		mmu:      mmu,
-		regs:     [23]byte{regNR52: 0x70}, // APU off, bits 4-6 = 1
-		seqStep:  0,
 		ch1:      &pulseChannel{},
 		ch2:      &pulseChannel{},
 		ch3:      &waveChannel{},
@@ -382,20 +358,20 @@ func regIndex(addr uint16) int {
 // ReadRegister returns the value of an APU register at the given address.
 func (a *APU) ReadRegister(addr uint16) byte {
 	if idx := regIndex(addr); idx >= 0 {
-		v := a.regs[idx]
+		v := a.Regs[idx]
 		if addr == 0xFF26 { // NR52
 			v &^= 0x3F // clear bits 0-5; bits 4-6 overwritten below
 			v |= 0x70  // bits 4-6 always 1
-			if a.ch1On {
+			if a.Ch1On {
 				v |= 0x01
 			}
-			if a.ch2On {
+			if a.Ch2On {
 				v |= 0x02
 			}
-			if a.ch3On {
+			if a.Ch3On {
 				v |= 0x04
 			}
-			if a.ch4On {
+			if a.Ch4On {
 				v |= 0x08
 			}
 			// bit 7 is stored (APU on/off)
@@ -407,7 +383,7 @@ func (a *APU) ReadRegister(addr uint16) byte {
 		if a.ch3Active() {
 			return 0xFF
 		}
-		return a.waveRAM[addr-0xFF30]
+		return a.WaveRAM[addr-0xFF30]
 	}
 	return 0xFF
 }
@@ -418,34 +394,34 @@ func (a *APU) WriteRegister(addr uint16, val byte) {
 
 	// NR52 gating
 	if idx >= 0 && addr != 0xFF26 {
-		if a.regs[regNR52]&0x80 == 0 {
+		if a.Regs[regNR52]&0x80 == 0 {
 			return
 		}
 	}
 
 	if idx >= 0 {
 		if addr == 0xFF26 {
-			wasOn := a.regs[regNR52]&0x80 != 0
+			wasOn := a.Regs[regNR52]&0x80 != 0
 			nowOn := val&0x80 != 0
 			if wasOn && !nowOn {
 				a.resetRegisters()
 			} else if !wasOn && nowOn {
-				a.cyclAccum = 0
-				a.seqStep = 0
+				a.CycAccum = 0
+				a.SeqStep = 0
 			}
-			a.regs[idx] = (val & 0x80) | 0x70
+			a.Regs[idx] = (val & 0x80) | 0x70
 			return
 		}
 
 		// Write register value first so trigger handlers see latest state.
-		a.regs[idx] = val
+		a.Regs[idx] = val
 
 		switch idx {
 		case regNR30:
 			// NR30 bit 7 controls DAC enable. Writing here doesn't re-trigger.
 			// If DAC is turned off, channel is disabled.
 			if val&0x80 == 0 {
-				a.ch3On = false
+				a.Ch3On = false
 			}
 		case regNR32:
 			a.cacheCh3OutputLevel()
@@ -465,10 +441,10 @@ func (a *APU) WriteRegister(addr uint16, val byte) {
 			a.updateCh3Frequency()
 			if val&0x80 != 0 {
 				a.reloadLengthCounter(2)
-				a.ch3On = true
+				a.Ch3On = true
 				// DAC enable check: NR30 bit 7 must be set
-				if a.regs[regNR30]&0x80 == 0 {
-					a.ch3On = false
+				if a.Regs[regNR30]&0x80 == 0 {
+					a.Ch3On = false
 				}
 				// First-sample skip: set pos=0 then immediately advance to pos=1
 				a.ch3.samplePos = 1
@@ -489,55 +465,55 @@ func (a *APU) WriteRegister(addr uint16, val byte) {
 	if addr >= 0xFF30 && addr <= 0xFF3F {
 		// Wave RAM gating: writes ignored when CH3 is active.
 		if !a.ch3Active() {
-			a.waveRAM[addr-0xFF30] = val
+			a.WaveRAM[addr-0xFF30] = val
 		}
 	}
 }
 
 // updateCh1Frequency refreshes the cached frequency from NR13 and NR14 bits 0-2.
 func (a *APU) updateCh1Frequency() {
-	a.ch1.frequency = int(a.regs[regNR13]) | (int(a.regs[regNR14]&7) << 8)
+	a.ch1.frequency = int(a.Regs[regNR13]) | (int(a.Regs[regNR14]&7) << 8)
 }
 
 // updateCh2Frequency refreshes the cached frequency from NR23 and NR24 bits 0-2.
 func (a *APU) updateCh2Frequency() {
-	a.ch2.frequency = int(a.regs[regNR23]) | (int(a.regs[regNR24]&7) << 8)
+	a.ch2.frequency = int(a.Regs[regNR23]) | (int(a.Regs[regNR24]&7) << 8)
 }
 
 // updateCh3Frequency refreshes the cached frequency from NR33 and NR34 bits 0-2.
 func (a *APU) updateCh3Frequency() {
-	a.ch3.frequency = int(a.regs[regNR33]) | (int(a.regs[regNR34]&7) << 8)
+	a.ch3.frequency = int(a.Regs[regNR33]) | (int(a.Regs[regNR34]&7) << 8)
 }
 
 // cacheCh3OutputLevel caches the output level from NR32 bits 5-6.
 func (a *APU) cacheCh3OutputLevel() {
-	a.ch3.outputLevel = int(a.regs[regNR32] >> 5 & 3)
+	a.ch3.outputLevel = int(a.Regs[regNR32] >> 5 & 3)
 }
 
 // ch3Active returns true when CH3 is active (DAC on AND channel on).
 // CH3 DAC is controlled by NR30 bit 7.
 func (a *APU) ch3Active() bool {
-	return a.regs[regNR30]&0x80 != 0 && a.ch3On
+	return a.Regs[regNR30]&0x80 != 0 && a.Ch3On
 }
 
 // triggerCh1 handles Channel 1 trigger (NR14 bit 7).
 func (a *APU) triggerCh1() {
 	a.reloadLengthCounter(0)
-	a.ch1On = true
+	a.Ch1On = true
 
-	a.ch1.duty = int(a.regs[regNR11] >> 6 & 3)
-	a.ch1.frequency = int(a.regs[regNR13]) | (int(a.regs[regNR14]&7) << 8)
+	a.ch1.duty = int(a.Regs[regNR11] >> 6 & 3)
+	a.ch1.frequency = int(a.Regs[regNR13]) | (int(a.Regs[regNR14]&7) << 8)
 	a.ch1.dutyPos = 0
 	a.ch1.freqAccum = 0
-	a.ch1.triggerEnvelope(a.regs[regNR12])
+	a.ch1.triggerEnvelope(a.Regs[regNR12])
 
 	// DAC off check: NR12 bits 7-3 all zero → DAC off.
-	if a.regs[regNR12]&0xF8 == 0 {
-		a.ch1On = false
+	if a.Regs[regNR12]&0xF8 == 0 {
+		a.Ch1On = false
 	}
 
 	// Sweep init
-	nr10 := a.regs[regNR10]
+	nr10 := a.Regs[regNR10]
 	a.sweep.sweepPeriod = int(nr10 >> 4 & 7)
 	a.sweep.sweepNegate = nr10&0x08 != 0
 	a.sweep.sweepShift = int(nr10 & 7)
@@ -558,7 +534,7 @@ func (a *APU) triggerCh1() {
 			newFreq = a.sweep.shadowFreq + offset
 		}
 		if newFreq < 0 || newFreq > 2047 {
-			a.ch1On = false
+			a.Ch1On = false
 		}
 	}
 }
@@ -566,41 +542,41 @@ func (a *APU) triggerCh1() {
 // triggerCh2 handles Channel 2 trigger (NR24 bit 7).
 func (a *APU) triggerCh2() {
 	a.reloadLengthCounter(1)
-	a.ch2On = true
+	a.Ch2On = true
 
-	a.ch2.duty = int(a.regs[regNR21] >> 6 & 3)
-	a.ch2.frequency = int(a.regs[regNR23]) | (int(a.regs[regNR24]&7) << 8)
+	a.ch2.duty = int(a.Regs[regNR21] >> 6 & 3)
+	a.ch2.frequency = int(a.Regs[regNR23]) | (int(a.Regs[regNR24]&7) << 8)
 	a.ch2.dutyPos = 0
 	a.ch2.freqAccum = 0
-	a.ch2.triggerEnvelope(a.regs[regNR22])
+	a.ch2.triggerEnvelope(a.Regs[regNR22])
 
-	if a.regs[regNR22]&0xF8 == 0 {
-		a.ch2On = false
+	if a.Regs[regNR22]&0xF8 == 0 {
+		a.Ch2On = false
 	}
 }
 
 // triggerCh4 handles Channel 4 trigger (NR44 bit 7).
 func (a *APU) triggerCh4() {
 	a.reloadLengthCounter(3)
-	a.ch4On = true
+	a.Ch4On = true
 	a.ch4.triggerLFSR()
-	a.ch4.triggerEnvelope(a.regs[regNR42])
-	if a.regs[regNR42]&0xF8 == 0 {
-		a.ch4On = false
+	a.ch4.triggerEnvelope(a.Regs[regNR42])
+	if a.Regs[regNR42]&0xF8 == 0 {
+		a.Ch4On = false
 	}
 }
 
 // resetRegisters clears all registers and state to power-off configuration.
 func (a *APU) resetRegisters() {
-	a.regs = [23]byte{regNR52: 0x70}
-	a.waveRAM = [16]byte{}
-	a.ch1On = false
-	a.ch2On = false
-	a.ch3On = false
-	a.ch4On = false
-	a.cyclAccum = 0
-	a.seqStep = 0
-	a.lengthCnt = [4]int{}
+	a.Regs = [23]byte{regNR52: 0x70}
+	a.WaveRAM = [16]byte{}
+	a.Ch1On = false
+	a.Ch2On = false
+	a.Ch3On = false
+	a.Ch4On = false
+	a.CycAccum = 0
+	a.SeqStep = 0
+	a.LengthCnt = [4]int{}
 	*a.ch1 = pulseChannel{}
 	*a.ch2 = pulseChannel{}
 	a.sweep = sweepUnit{}
@@ -608,23 +584,23 @@ func (a *APU) resetRegisters() {
 	*a.ch4 = noiseChannel{}
 	a.audioBuf = a.audioBuf[:0]
 	a.sampleAccum = 0
-	a.hpLIn = 0
-	a.hpROut = 0
-	a.hpRIn = 0
-	a.hpLOut = 0
+	a.HPIntoL = 0
+	a.HPOutR = 0
+	a.HPIntoR = 0
+	a.HPOutL = 0
 }
 
 // reloadLengthCounter reloads the length counter for the given channel.
 func (a *APU) reloadLengthCounter(ch int) {
 	switch ch {
 	case 0:
-		a.lengthCnt[0] = 64 - int(a.regs[regNR11]&0x3F)
+		a.LengthCnt[0] = 64 - int(a.Regs[regNR11]&0x3F)
 	case 1:
-		a.lengthCnt[1] = 64 - int(a.regs[regNR21]&0x3F)
+		a.LengthCnt[1] = 64 - int(a.Regs[regNR21]&0x3F)
 	case 2:
-		a.lengthCnt[2] = 256 - int(a.regs[regNR31])
+		a.LengthCnt[2] = 256 - int(a.Regs[regNR31])
 	case 3:
-		a.lengthCnt[3] = 64 - int(a.regs[regNR41]&0x3F)
+		a.LengthCnt[3] = 64 - int(a.Regs[regNR41]&0x3F)
 	}
 }
 
@@ -635,26 +611,26 @@ func (a *APU) Step(cycles int) {
 	}
 
 	// Clock frequency generators for active pulse channels.
-	if a.ch1On {
+	if a.Ch1On {
 		a.ch1.clockFrequency(cycles)
 	}
-	if a.ch2On {
+	if a.Ch2On {
 		a.ch2.clockFrequency(cycles)
 	}
 
 	// Clock CH3 wave channel frequency generator.
-	if a.ch3On {
+	if a.Ch3On {
 		a.ch3.clockFrequency(cycles)
 	}
 
-	a.cyclAccum += cycles
-	for a.cyclAccum >= sequencerInterval {
-		a.cyclAccum -= sequencerInterval
+	a.CycAccum += cycles
+	for a.CycAccum >= sequencerInterval {
+		a.CycAccum -= sequencerInterval
 		a.clockSequencer()
 	}
 
 	// CH4 (Noise) LFSR clocking. Runs as long as APU is on.
-	a.ch4.clockLFSR(cycles, a.regs[regNR43])
+	a.ch4.clockLFSR(cycles, a.Regs[regNR43])
 
 	// Accumulate audio samples.
 	a.fillAudioBuffer(cycles)
@@ -662,13 +638,13 @@ func (a *APU) Step(cycles int) {
 
 // isOff returns true when the APU is powered off (NR52 bit 7 = 0).
 func (a *APU) isOff() bool {
-	return a.regs[regNR52]&0x80 == 0
+	return a.Regs[regNR52]&0x80 == 0
 }
 
 // clockSequencer fires events for the current frame sequencer step,
 // then advances to the next step.
 func (a *APU) clockSequencer() {
-	step := a.seqStep
+	step := a.SeqStep
 
 	if step&1 == 0 {
 		a.clockLengthCounters()
@@ -680,33 +656,33 @@ func (a *APU) clockSequencer() {
 		a.clockEnvelopes()
 	}
 
-	a.seqStep = (step + 1) & 7
+	a.SeqStep = (step + 1) & 7
 }
 
 // clockLengthCounters decrements the length counters for all four channels.
 func (a *APU) clockLengthCounters() {
-	if a.regs[regNR14]&0x40 != 0 && a.lengthCnt[0] > 0 {
-		a.lengthCnt[0]--
-		if a.lengthCnt[0] <= 0 {
-			a.ch1On = false
+	if a.Regs[regNR14]&0x40 != 0 && a.LengthCnt[0] > 0 {
+		a.LengthCnt[0]--
+		if a.LengthCnt[0] <= 0 {
+			a.Ch1On = false
 		}
 	}
-	if a.regs[regNR24]&0x40 != 0 && a.lengthCnt[1] > 0 {
-		a.lengthCnt[1]--
-		if a.lengthCnt[1] <= 0 {
-			a.ch2On = false
+	if a.Regs[regNR24]&0x40 != 0 && a.LengthCnt[1] > 0 {
+		a.LengthCnt[1]--
+		if a.LengthCnt[1] <= 0 {
+			a.Ch2On = false
 		}
 	}
-	if a.regs[regNR34]&0x40 != 0 && a.lengthCnt[2] > 0 {
-		a.lengthCnt[2]--
-		if a.lengthCnt[2] <= 0 {
-			a.ch3On = false
+	if a.Regs[regNR34]&0x40 != 0 && a.LengthCnt[2] > 0 {
+		a.LengthCnt[2]--
+		if a.LengthCnt[2] <= 0 {
+			a.Ch3On = false
 		}
 	}
-	if a.regs[regNR44]&0x40 != 0 && a.lengthCnt[3] > 0 {
-		a.lengthCnt[3]--
-		if a.lengthCnt[3] <= 0 {
-			a.ch4On = false
+	if a.Regs[regNR44]&0x40 != 0 && a.LengthCnt[3] > 0 {
+		a.LengthCnt[3]--
+		if a.LengthCnt[3] <= 0 {
+			a.Ch4On = false
 		}
 	}
 }
@@ -739,13 +715,13 @@ func (a *APU) clockSweep() {
 	}
 
 	if newFreq < 0 || newFreq > 2047 {
-		a.ch1On = false
+		a.Ch1On = false
 		return
 	}
 
 	a.sweep.shadowFreq = newFreq
-	a.regs[regNR13] = byte(newFreq & 0xFF)
-	a.regs[regNR14] = (a.regs[regNR14] & 0xF8) | byte((newFreq>>8)&7)
+	a.Regs[regNR13] = byte(newFreq & 0xFF)
+	a.Regs[regNR14] = (a.Regs[regNR14] & 0xF8) | byte((newFreq>>8)&7)
 	a.ch1.frequency = newFreq
 
 	// Second overflow check
@@ -758,7 +734,7 @@ func (a *APU) clockSweep() {
 			checkFreq = a.sweep.shadowFreq + offset2
 		}
 		if checkFreq < 0 || checkFreq > 2047 {
-			a.ch1On = false
+			a.Ch1On = false
 		}
 	}
 }
@@ -776,7 +752,7 @@ func (a *APU) clockEnvelopes() {
 
 // GetSampleCh1 returns the current audio sample for channel 1 (0-15).
 func (a *APU) GetSampleCh1() int {
-	if !a.ch1On {
+	if !a.Ch1On {
 		return 0
 	}
 	return a.ch1.getOutput()
@@ -784,7 +760,7 @@ func (a *APU) GetSampleCh1() int {
 
 // GetSampleCh2 returns the current audio sample for channel 2 (0-15).
 func (a *APU) GetSampleCh2() int {
-	if !a.ch2On {
+	if !a.Ch2On {
 		return 0
 	}
 	return a.ch2.getOutput()
@@ -796,12 +772,12 @@ func (a *APU) GetSampleCh3() int {
 	if !a.ch3Active() {
 		return 0
 	}
-	return a.ch3.getSample(a.waveRAM)
+	return a.ch3.getSample(a.WaveRAM)
 }
 
 // GetSampleCh4 returns the current audio sample for channel 4 (0-15).
 func (a *APU) GetSampleCh4() int {
-	if !a.ch4On {
+	if !a.Ch4On {
 		return 0
 	}
 	return a.ch4.getOutput()
@@ -814,8 +790,8 @@ func (a *APU) GetSampleCh4() int {
 // getMixedSample returns the mixed left and right 16-bit PCM samples
 // for the current state. Applies a DC-blocking high-pass filter.
 func (a *APU) getMixedSample() (int16, int16) {
-	nr50 := a.regs[regNR50]
-	nr51 := a.regs[regNR51]
+	nr50 := a.Regs[regNR50]
+	nr51 := a.Regs[regNR51]
 	leftVol := int(nr50>>4&7) + 1  // 1-8
 	rightVol := int(nr50&7) + 1    // 1-8
 
@@ -885,8 +861,8 @@ func (a *APU) getMixedSample() (int16, int16) {
 	fl := int16(ls)
 	fr := int16(rs)
 	// y[n] = x[n] - x[n-1] + 0.999 * y[n-1]
-	hl := int(fl) - int(a.hpLIn) + (a.hpLOut*999)/1000
-	hr := int(fr) - int(a.hpRIn) + (a.hpROut*999)/1000
+	hl := int(fl) - int(a.HPIntoL) + (a.HPOutL*999)/1000
+	hr := int(fr) - int(a.HPIntoR) + (a.HPOutR*999)/1000
 
 	// Clamp after filter.
 	if hl > 32767 {
@@ -902,10 +878,10 @@ func (a *APU) getMixedSample() (int16, int16) {
 		hr = -32768
 	}
 
-	a.hpLIn = fl   // x[n-1] for next frame
-	a.hpLOut = hl  // y[n-1] for next frame
-	a.hpRIn = fr
-	a.hpROut = hr
+	a.HPIntoL = fl   // x[n-1] for next frame
+	a.HPOutL = hl  // y[n-1] for next frame
+	a.HPIntoR = fr
+	a.HPOutR = hr
 
 	return int16(hl), int16(hr)
 }
@@ -932,40 +908,96 @@ func (a *APU) fillAudioBuffer(cycles int) {
 
 // GetAudioBuffer returns the accumulated audio samples and clears the buffer.
 // Returns stereo interleaved 16-bit PCM (L,R,L,R,...).
-// GetFullState returns the complete APU state for save-state serialisation.
-func (a *APU) GetFullState() APUFullState {
-	return APUFullState{
-		Regs:      a.regs,
-		WaveRAM:   a.waveRAM,
-		Ch1On:     a.ch1On,
-		Ch2On:     a.ch2On,
-		Ch3On:     a.ch3On,
-		Ch4On:     a.ch4On,
-		CycAccum:  a.cyclAccum,
-		SeqStep:   a.seqStep,
-		LengthCnt: a.lengthCnt,
-		HPIntoL:   a.hpLIn,
-		HPOutL:    a.hpLOut,
-		HPIntoR:   a.hpRIn,
-		HPOutR:    a.hpROut,
-	}
+// GetState returns the complete APU state, syncing sub-channels first.
+func (a *APU) GetState() APUState {
+	a.syncToState()
+	return *a.APUState
 }
 
-// SetFullState restores the APU from a previously saved APUFullState.
-func (a *APU) SetFullState(s APUFullState) {
-	a.regs = s.Regs
-	a.waveRAM = s.WaveRAM
-	a.ch1On = s.Ch1On
-	a.ch2On = s.Ch2On
-	a.ch3On = s.Ch3On
-	a.ch4On = s.Ch4On
-	a.cyclAccum = s.CycAccum
-	a.seqStep = s.SeqStep
-	a.lengthCnt = s.LengthCnt
-	a.hpLIn = s.HPIntoL
-	a.hpLOut = s.HPOutL
-	a.hpRIn = s.HPIntoR
-	a.hpROut = s.HPOutR
+// SetState restores the APU from saved state.
+func (a *APU) SetState(s APUState) {
+	*a.APUState = s
+	a.syncFromState()
+}
+
+// syncToState copies sub-channel state into flat APUState fields.
+func (a *APU) syncToState() {
+	a.APUState.Pulse1Freq = a.ch1.frequency
+	a.APUState.Pulse1Accum = a.ch1.freqAccum
+	a.APUState.Pulse1DutyPos = a.ch1.dutyPos
+	a.APUState.Pulse1Duty = a.ch1.duty
+	a.APUState.Pulse1Vol = a.ch1.volume
+	a.APUState.Pulse1EnvTimer = a.ch1.envTimer
+	a.APUState.Pulse1EnvPeriod = a.ch1.envPeriod
+	a.APUState.Pulse1EnvDir = a.ch1.envDir
+
+	a.APUState.Pulse2Freq = a.ch2.frequency
+	a.APUState.Pulse2Accum = a.ch2.freqAccum
+	a.APUState.Pulse2DutyPos = a.ch2.dutyPos
+	a.APUState.Pulse2Duty = a.ch2.duty
+	a.APUState.Pulse2Vol = a.ch2.volume
+	a.APUState.Pulse2EnvTimer = a.ch2.envTimer
+	a.APUState.Pulse2EnvPeriod = a.ch2.envPeriod
+	a.APUState.Pulse2EnvDir = a.ch2.envDir
+
+	a.APUState.SweepShadowFreq = a.sweep.shadowFreq
+	a.APUState.SweepTimer = a.sweep.sweepTimer
+	a.APUState.SweepEnabled = a.sweep.sweepEnabled
+	a.APUState.SweepPeriod = a.sweep.sweepPeriod
+	a.APUState.SweepNegate = a.sweep.sweepNegate
+	a.APUState.SweepShift = a.sweep.sweepShift
+
+	a.APUState.WaveFreq = a.ch3.frequency
+	a.APUState.WaveAccum = a.ch3.freqAccum
+	a.APUState.WaveSamplePos = a.ch3.samplePos
+	a.APUState.WaveOutLevel = a.ch3.outputLevel
+
+	a.APUState.NoiseLFSR = a.ch4.lfsr
+	a.APUState.NoiseAccum = a.ch4.accum
+	a.APUState.NoiseVol = a.ch4.volume
+	a.APUState.NoiseEnvTimer = a.ch4.envTimer
+	a.APUState.NoiseEnvPeriod = a.ch4.envPeriod
+	a.APUState.NoiseEnvDir = a.ch4.envDir
+}
+
+// syncFromState copies flat APUState fields back into the sub-channels.
+func (a *APU) syncFromState() {
+	a.ch1.frequency = a.APUState.Pulse1Freq
+	a.ch1.freqAccum = a.APUState.Pulse1Accum
+	a.ch1.dutyPos = a.APUState.Pulse1DutyPos
+	a.ch1.duty = a.APUState.Pulse1Duty
+	a.ch1.volume = a.APUState.Pulse1Vol
+	a.ch1.envTimer = a.APUState.Pulse1EnvTimer
+	a.ch1.envPeriod = a.APUState.Pulse1EnvPeriod
+	a.ch1.envDir = a.APUState.Pulse1EnvDir
+
+	a.ch2.frequency = a.APUState.Pulse2Freq
+	a.ch2.freqAccum = a.APUState.Pulse2Accum
+	a.ch2.dutyPos = a.APUState.Pulse2DutyPos
+	a.ch2.duty = a.APUState.Pulse2Duty
+	a.ch2.volume = a.APUState.Pulse2Vol
+	a.ch2.envTimer = a.APUState.Pulse2EnvTimer
+	a.ch2.envPeriod = a.APUState.Pulse2EnvPeriod
+	a.ch2.envDir = a.APUState.Pulse2EnvDir
+
+	a.sweep.shadowFreq = a.APUState.SweepShadowFreq
+	a.sweep.sweepTimer = a.APUState.SweepTimer
+	a.sweep.sweepEnabled = a.APUState.SweepEnabled
+	a.sweep.sweepPeriod = a.APUState.SweepPeriod
+	a.sweep.sweepNegate = a.APUState.SweepNegate
+	a.sweep.sweepShift = a.APUState.SweepShift
+
+	a.ch3.frequency = a.APUState.WaveFreq
+	a.ch3.freqAccum = a.APUState.WaveAccum
+	a.ch3.samplePos = a.APUState.WaveSamplePos
+	a.ch3.outputLevel = a.APUState.WaveOutLevel
+
+	a.ch4.lfsr = a.APUState.NoiseLFSR
+	a.ch4.accum = a.APUState.NoiseAccum
+	a.ch4.volume = a.APUState.NoiseVol
+	a.ch4.envTimer = a.APUState.NoiseEnvTimer
+	a.ch4.envPeriod = a.APUState.NoiseEnvPeriod
+	a.ch4.envDir = a.APUState.NoiseEnvDir
 }
 
 func (a *APU) GetAudioBuffer() []int16 {
