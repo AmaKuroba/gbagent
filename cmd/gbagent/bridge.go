@@ -64,6 +64,12 @@ func (b *mcpBridge) exec(fn func() any) any {
 	return <-result
 }
 
+// execNow runs fn directly (no channel). Safe only when called from the
+// single goroutine that owns the bridge (e.g. jsonrpc stdio mode).
+func (b *mcpBridge) execNow(fn func() any) any {
+	return fn()
+}
+
 // processPending drains all queued commands on the emulation goroutine.
 // Must be called FROM the emulation goroutine only.
 func (b *mcpBridge) processPending() {

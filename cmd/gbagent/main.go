@@ -85,17 +85,31 @@ func loadRAM(romPath string, cart gb.Cartridge) {
 	log.Printf("loaded battery-backed RAM from %s (%d bytes)", path, len(data))
 }
 
-func runServe(romPath string, port int, mcpPort int) {
-	// Load ROM
+// runJSONRPC creates the emulator and bridge, then runs stdio JSON-RPC.
+func runJSONRPC(romPath string) {
+	bridge := createBridge(romPath)
+	if bridge == nil {
+		os.Exit(1)
+	}
+
+	log.Printf("gbagent jsonrpc: running (%s)", bridge.cart.GetTitle())
+	defer func() {
+		if bridge.cart != nil && bridge.cart.HasBattery() {
+			saveRAM(romPath, bridge.cart, "jsonrpc")
+		}
+	}()
+
+	runJSONRPCStdio(bridge)
+}
+
+// createBridge loads a ROM and returns a fully initialized bridge.
+func createBridge(romPath string) *mcpBridge {
 	romData, err := os.ReadFile(romPath)
 	if err != nil {
 		log.Fatalf("failed to read ROM: %v", err)
 	}
 
-	// Initialize emulator
 	cart := gb.NewCartridge(romData)
-
-	// Load battery-backed RAM from disk if it exists.
 	loadRAM(romPath, cart)
 
 	mmu := gb.NewMMU(cart)
@@ -108,20 +122,52 @@ func runServe(romPath string, port int, mcpPort int) {
 	cpu := gb.NewCPU(mmu)
 	mmu.SetCPU(cpu)
 
-	// Create and attach the joypad register handler
 	joypad := gb.NewJoypad(mmu)
 	mmu.SetJoypad(joypad)
 
-	// Set initial CPU registers (matching DMG post-boot-ROM state)
 	cpu.Reset()
-	// Load the DMG boot ROM data so the Nintendo logo copies to VRAM,
-	// then the boot ROM jumps to the cartridge entry point at $0100.
 	mmu.LoadBootROM(gb.DMGBootROMData[:])
 	cpu.PC = 0x0000
 
+	return newBridge(mmu, cpu, ppu, timer, apu, cart, romPath, nil)
+}
+
+// createBridgeWithHub is like createBridge but also attaches a dashboard hub.
+func createBridgeWithHub(romPath string, hub *dashboard.Hub) *mcpBridge {
+	romData, err := os.ReadFile(romPath)
+	if err != nil {
+		log.Fatalf("failed to read ROM: %v", err)
+	}
+
+	cart := gb.NewCartridge(romData)
+	loadRAM(romPath, cart)
+
+	mmu := gb.NewMMU(cart)
+	ppu := gb.NewPPU(mmu)
+	mmu.SetPPU(ppu)
+	timer := gb.NewTimer(mmu)
+	mmu.SetTimer(timer)
+	apu := gb.NewAPU(mmu)
+	mmu.SetAPU(apu)
+	cpu := gb.NewCPU(mmu)
+	mmu.SetCPU(cpu)
+
+	joypad := gb.NewJoypad(mmu)
+	mmu.SetJoypad(joypad)
+
+	cpu.Reset()
+	mmu.LoadBootROM(gb.DMGBootROMData[:])
+	cpu.PC = 0x0000
+
+	return newBridge(mmu, cpu, ppu, timer, apu, cart, romPath, hub)
+}
+
+func runServe(romPath string, port int, mcpPort int, jsonrpcPort int) {
 	// Start dashboard hub and server
 	hub := dashboard.NewHub()
 	go hub.Run()
+
+	bridge := createBridgeWithHub(romPath, hub)
 
 	srv := dashboard.NewServer(hub, fmt.Sprintf(":%d", port))
 	go func() {
@@ -130,9 +176,6 @@ func runServe(romPath string, port int, mcpPort int) {
 			log.Fatalf("server error: %v", err)
 		}
 	}()
-
-	// Create MCP bridge and SSE server.
-	bridge := newBridge(mmu, cpu, ppu, timer, apu, cart, romPath, hub)
 
 	mcpServer := mcp.NewServer(bridge)
 	sseServer := server.NewSSEServer(
@@ -146,14 +189,19 @@ func runServe(romPath string, port int, mcpPort int) {
 		}
 	}()
 
-	// Emulation loop at ~30fps
+	// Optional JSON-RPC WebSocket server
+	if jsonrpcPort > 0 {
+		go runJSONRPCWebSocket(bridge, jsonrpcPort)
+	}
+
+	// Emulation loop at ~60fps
 	frameTicker := time.NewTicker(time.Second / 60)
 	defer frameTicker.Stop()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt)
 
-	log.Printf("gbagent: emulation running (%s)", cart.GetTitle())
+	log.Printf("gbagent: emulation running (%s)", bridge.cart.GetTitle())
 	for {
 		select {
 		case <-sigCh:
@@ -165,13 +213,12 @@ func runServe(romPath string, port int, mcpPort int) {
 
 			// Push current joypad state into the emulator's MMU so the
 			// game reads the pressed buttons via I/O register 0xFF00.
-			mmu.SetJoypadButtons(srv.Joypad().State())
+			bridge.mmu.SetJoypadButtons(srv.Joypad().State())
 
 			// Step one full frame (70224 T-cycles).
-			// Device stepping is handled internally by M-cycle stepping in cpu.Step().
 			var cyclesThisFrame int
 			for cyclesThisFrame < 70224 {
-				cycles, err := cpu.Step()
+				cycles, err := bridge.cpu.Step()
 				if err != nil {
 					log.Printf("cpu error: %v", err)
 					return
@@ -180,14 +227,14 @@ func runServe(romPath string, port int, mcpPort int) {
 			}
 
 			// Broadcast frame as PNG binary
-			fb := ppu.GetScreen()
+			fb := bridge.ppu.GetScreen()
 			if pngData := encodeFrame(fb); pngData != nil {
 				hub.BroadcastBinary(append([]byte{0x00}, pngData...))
 			}
 
 			// Broadcast game state + joypad state as JSON text
-			state := cpu.GetState()
-			ppuState := ppu.GetState()
+			state := bridge.cpu.GetState()
+			ppuState := bridge.ppu.GetState()
 			joypadBits := srv.Joypad().State()
 			stateJSON := fmt.Sprintf(
 				`{"pc":%d,"af":%d,"bc":%d,"de":%d,"hl":%d,"sp":%d,"ime":%t,"frame":%d,"joypad":%d}`,
@@ -197,7 +244,7 @@ func runServe(romPath string, port int, mcpPort int) {
 			hub.BroadcastText([]byte(stateJSON))
 
 			// Broadcast accumulated audio samples as a binary message.
-			if audioBuf := apu.GetAudioBuffer(); len(audioBuf) > 0 {
+			if audioBuf := bridge.apu.GetAudioBuffer(); len(audioBuf) > 0 {
 				b := make([]byte, 2+len(audioBuf)*2)
 				binary.LittleEndian.PutUint16(b[:2], uint16(len(audioBuf)/2))
 				for i, s := range audioBuf {
@@ -211,7 +258,7 @@ func runServe(romPath string, port int, mcpPort int) {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: gbagent <command> [flags]\n\nCommands:\n  serve   Start the dashboard server with emulation\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: gbagent <command> [flags]\n\nCommands:\n  serve     Start the dashboard server with emulation\n  jsonrpc   Run JSON-RPC over stdio (for RL training)\n\n")
 		os.Exit(1)
 	}
 
@@ -221,16 +268,28 @@ func main() {
 		romPath := serveCmd.String("rom", "", "Path to Game Boy ROM file (required)")
 		port := serveCmd.Int("port", 8765, "Dashboard HTTP server port")
 		mcpPort := serveCmd.Int("mcp-port", 8766, "MCP SSE server port")
+		jsonrpcPort := serveCmd.Int("jsonrpc-port", 8767, "JSON-RPC WebSocket port (0 = disable)")
 		serveCmd.Parse(os.Args[2:])
 
 		if *romPath == "" {
-			fmt.Fprintf(os.Stderr, "Usage: gbagent serve --rom <rom.gb> [--port 8765] [--mcp-port 8766]\n")
+			fmt.Fprintf(os.Stderr, "Usage: gbagent serve --rom <rom.gb> [--port 8765] [--mcp-port 8766] [--jsonrpc-port 8767]\n")
 			os.Exit(1)
 		}
-		runServe(*romPath, *port, *mcpPort)
+		runServe(*romPath, *port, *mcpPort, *jsonrpcPort)
+
+	case "jsonrpc":
+		jsonrpcCmd := flag.NewFlagSet("jsonrpc", flag.ExitOnError)
+		romPath := jsonrpcCmd.String("rom", "", "Path to Game Boy ROM file (required)")
+		jsonrpcCmd.Parse(os.Args[2:])
+
+		if *romPath == "" {
+			fmt.Fprintf(os.Stderr, "Usage: gbagent jsonrpc --rom <rom.gb>\n")
+			os.Exit(1)
+		}
+		runJSONRPC(*romPath)
 
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %q\n\nUsage: gbagent <command> [flags]\n\nCommands:\n  serve   Start the dashboard server with emulation\n\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "Unknown command: %q\n\nUsage: gbagent <command> [flags]\n\nCommands:\n  serve     Start the dashboard server with emulation\n  jsonrpc   Run JSON-RPC over stdio (for RL training)\n\n", os.Args[1])
 		os.Exit(1)
 	}
 }
