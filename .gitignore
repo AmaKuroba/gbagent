@@ -1,6 +1,10 @@
 # Build artifacts
 bin/
 
+# Python
+__pycache__/
+*.pyc
+
 # Python driver
 retro-driver/.venv/
 retro-driver/.pytest_cache/

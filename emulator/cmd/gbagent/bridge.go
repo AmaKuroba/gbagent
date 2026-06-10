@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/gob"
 	"encoding/json"
+	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 
@@ -178,6 +180,66 @@ func newBridge(mmu *gb.MemoryBus, cpu *gb.Core, ppu *gb.PPUCore, timer *gb.Timer
 	}
 }
 
+// SaveState persists the full emulator state to a gob file.
+// Thread-safe: runs on the background processor goroutine.
+func (b *mcpBridge) SaveState(path string) error {
+	result := b.exec(func() any {
+		state := saveFile{
+			CPU:   b.cpu.GetState(),
+			PPU:   b.ppu.GetState(),
+			Timer: b.timer.GetState(),
+		}
+		if b.cart != nil && b.cart.HasBattery() {
+			if ram := b.cart.SaveRAM(); ram != nil {
+				state.BatteryRAM = ram
+			}
+		}
+		f, err := os.Create(path)
+		if err != nil {
+			return err
+		}
+		if err := gob.NewEncoder(f).Encode(state); err != nil {
+			f.Close() //nolint: errcheck
+			return err
+		}
+		return f.Close()
+	})
+	if err, ok := result.(error); ok {
+		return err
+	}
+	return nil
+}
+
+// LoadState restores the full emulator state from a gob file.
+// Thread-safe: runs on the background processor goroutine.
+func (b *mcpBridge) LoadState(path string) error {
+	result := b.exec(func() any {
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+
+		var state saveFile
+		if err := gob.NewDecoder(f).Decode(&state); err != nil {
+			return err
+		}
+
+		b.cpu.SetState(state.CPU)
+		b.ppu.SetState(state.PPU)
+		b.timer.SetState(state.Timer)
+
+		if len(state.BatteryRAM) > 0 && b.cart != nil && b.cart.HasBattery() {
+			b.cart.LoadRAM(state.BatteryRAM)
+		}
+		return nil
+	})
+	if err, ok := result.(error); ok {
+		return err
+	}
+	return nil
+}
+
 // exec sends a command to the background processor and waits for the result.
 func (b *mcpBridge) exec(fn func() any) any {
 	result := make(chan any, 1)
@@ -254,6 +316,31 @@ type saveFile struct {
 	PPU        gb.PPUState
 	Timer      gb.TimerState
 	BatteryRAM []byte
+}
+
+// loadSavedState loads a gob-encoded saveFile directly into the bridge's
+// emulator components. Used by --load-state to skip the intro on boot.
+func loadSavedState(bridge *mcpBridge, path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open state file: %w", err)
+	}
+	defer f.Close()
+
+	var state saveFile
+	if err := gob.NewDecoder(f).Decode(&state); err != nil {
+		return fmt.Errorf("decode state: %w", err)
+	}
+
+	bridge.cpu.SetState(state.CPU)
+	bridge.ppu.SetState(state.PPU)
+	bridge.timer.SetState(state.Timer)
+
+	if len(state.BatteryRAM) > 0 && bridge.cart != nil && bridge.cart.HasBattery() {
+		bridge.cart.LoadRAM(state.BatteryRAM)
+	}
+
+	return nil
 }
 
 // init registers the saveFile type with gob so encoding/decoding works.

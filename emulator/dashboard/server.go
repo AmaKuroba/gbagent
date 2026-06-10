@@ -25,6 +25,14 @@ type Server struct {
 	// TakeoverFunc is called when the dashboard sends a takeover toggle.
 	// Set by the caller (main.go) to bridge.SetTakeover.
 	TakeoverFunc func(bool)
+
+	// SaveStateFunc is called when the dashboard sends a save_state command.
+	// Set by the caller (main.go) to bridge.SaveState.
+	SaveStateFunc func(path string) error
+
+	// LoadStateFunc is called when the dashboard sends a load_state command.
+	// Set by the caller (main.go) to bridge.LoadState.
+	LoadStateFunc func(path string) error
 }
 
 // NewServer creates a new dashboard server with the given hub and listen address.
@@ -151,6 +159,26 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := json.Unmarshal(message, &takeoverMsg); err == nil && takeoverMsg.Takeover != nil && s.TakeoverFunc != nil {
 			s.TakeoverFunc(*takeoverMsg.Takeover)
+		}
+
+		// Check for save/load state commands from dashboard buttons.
+		var stateMsg struct {
+			SaveState string `json:"save_state"`
+			LoadState string `json:"load_state"`
+		}
+		if err := json.Unmarshal(message, &stateMsg); err == nil {
+			if stateMsg.SaveState != "" && s.SaveStateFunc != nil {
+				log.Printf("dashboard: saving state to %s", stateMsg.SaveState)
+				if err := s.SaveStateFunc(stateMsg.SaveState); err != nil {
+					log.Printf("dashboard: save_state error: %v", err)
+				}
+			}
+			if stateMsg.LoadState != "" && s.LoadStateFunc != nil {
+				log.Printf("dashboard: loading state from %s", stateMsg.LoadState)
+				if err := s.LoadStateFunc(stateMsg.LoadState); err != nil {
+					log.Printf("dashboard: load_state error: %v", err)
+				}
+			}
 		}
 	}
 }

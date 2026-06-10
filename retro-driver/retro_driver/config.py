@@ -37,6 +37,16 @@ class GameConfig:
 
     game: str
     scanners: list[ScannerConfig] = field(default_factory=list)
+    start_state: str = ""
+
+    def start_state_path(self, base_dir: str | Path | None = None) -> str:
+        """Resolve the start state path, optionally relative to a base directory."""
+        if not self.start_state:
+            return ""
+        p = Path(self.start_state)
+        if base_dir and not p.is_absolute():
+            return str(Path(base_dir) / p)
+        return self.start_state
 
 
 def load_game_config(path: str | Path) -> GameConfig:
@@ -46,4 +56,8 @@ def load_game_config(path: str | Path) -> GameConfig:
         raw = yaml.safe_load(f)
 
     scanners = [ScannerConfig(**s) for s in raw.get("scanners", [])]
-    return GameConfig(game=raw.get("game", path.stem), scanners=scanners)
+    return GameConfig(
+        game=raw.get("game", path.stem),
+        scanners=scanners,
+        start_state=raw.get("start_state", ""),
+    )

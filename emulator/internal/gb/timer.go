@@ -158,6 +158,13 @@ func (t *Timer) GetState() TimerState {
 	}
 }
 
+func (t *Timer) SetState(s TimerState) {
+	t.DIV = s.DIV
+	t.TIMA = s.TIMA
+	t.TMA = s.TMA
+	t.TAC = s.TAC
+}
+
 // TimerState is a debug snapshot of the timer hardware.
 type TimerState struct {
 	DIV   byte

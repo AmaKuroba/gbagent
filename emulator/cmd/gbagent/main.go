@@ -95,15 +95,29 @@ func createBridgeWithHub(romPath string, hub *dashboard.Hub) *mcpBridge {
 	return newBridge(mmu, cpu, ppu, timer, apu, cart, romPath, hub, nil)
 }
 
-func runServe(romPath string, port int, jsonrpcPort int) {
+func runServe(romPath string, port int, jsonrpcPort int, loadState string) {
 	hub := dashboard.NewHub()
 	go hub.Run()
 
 	bridge := createBridgeWithHub(romPath, hub)
+
+	// Optionally load a pre-saved state after boot.
+	// The state is created manually (play through intro, save_state),
+	// then passed via --load-state so the emulator starts at that point.
+	// Much faster than re-skipping the intro every time.
+	if loadState != "" {
+		if err := loadSavedState(bridge, loadState); err != nil {
+			log.Fatalf("--load-state: %v", err)
+		}
+		log.Printf("loaded start state from %s", loadState)
+	}
+
 	bridge.startProcessor()
 
 	srv := dashboard.NewServer(hub, fmt.Sprintf(":%d", port))
 	srv.TakeoverFunc = bridge.SetTakeover
+	srv.SaveStateFunc = bridge.SaveState
+	srv.LoadStateFunc = bridge.LoadState
 	go func() {
 		log.Printf("gbagent dashboard: http://localhost:%d", port)
 		if err := srv.ListenAndServe(); err != nil {
@@ -117,6 +131,13 @@ func runServe(romPath string, port int, jsonrpcPort int) {
 	// Optional JSON-RPC WebSocket server (used by training agents).
 	if jsonrpcPort > 0 {
 		go runJSONRPCWebSocket(bridge, jsonrpcPort)
+	}
+
+	// If load-state is set, re-broadcast the loaded screen once
+	// the frame loop has it in the snapshot.
+	if loadState != "" {
+		// Let the frame loop tick once so the snapshot catches up.
+		time.Sleep(time.Second / 60)
 	}
 
 	// Emulation loop at ~60fps — never blocks, never calls processPending.
@@ -166,13 +187,14 @@ func main() {
 		romPath := serveCmd.String("rom", "", "Path to Game Boy ROM file (required)")
 		port := serveCmd.Int("port", 8765, "Dashboard HTTP server port")
 		jsonrpcPort := serveCmd.Int("jsonrpc-port", 8767, "JSON-RPC WebSocket port (0 = disable)")
+		loadState := serveCmd.String("load-state", "", "Path to a pre-saved state to load after boot (skips intro)")
 		serveCmd.Parse(os.Args[2:]) //nolint: errcheck
 
 		if *romPath == "" {
-			fmt.Fprintf(os.Stderr, "Usage: gbagent serve --rom <rom.gb> [--port 8765] [--jsonrpc-port 8767]\n")
+			fmt.Fprintf(os.Stderr, "Usage: gbagent serve --rom <rom.gb> [--port 8765] [--jsonrpc-port 8767] [--load-state <state.sav>]\n")
 			os.Exit(1)
 		}
-		runServe(*romPath, *port, *jsonrpcPort)
+		runServe(*romPath, *port, *jsonrpcPort, *loadState)
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %q\n\nUsage: gbagent <command> [flags]\n\nCommands:\n  serve     Start the dashboard server with emulation\n\n", os.Args[1])

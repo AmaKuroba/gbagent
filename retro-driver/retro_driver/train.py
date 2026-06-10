@@ -47,6 +47,9 @@ class TrainConfig:
     # Reward
     ram_scanner_config: str = ""
 
+    # Start state (replaces hard reset — pre-saved, created manually)
+    start_state: str = ""
+
 
 def train(config: TrainConfig) -> None:
     """Main training loop."""
@@ -57,6 +60,7 @@ def train(config: TrainConfig) -> None:
 
     # Build reward config with optional game-specific scanners
     reward_config = RewardConfig()
+    game_cfg = None
     if config.ram_scanner_config:
         if not Path(config.ram_scanner_config).exists():
             print(f"Warning: RAM scanner config not found: {config.ram_scanner_config}")
@@ -65,6 +69,11 @@ def train(config: TrainConfig) -> None:
 
             game_cfg = load_game_config(config.ram_scanner_config)
             reward_config.scanners = game_cfg.scanners
+
+    # Resolve start state: CLI flag beats game config
+    start_state = config.start_state
+    if not start_state and game_cfg:
+        start_state = game_cfg.start_state_path(Path(config.ram_scanner_config).parent)
 
     # Shared frame store (individual frames, shared by env and agent)
     frame_store = FrameStore(max_frames=config.dqn.buffer_capacity + config.dqn.seq_len + 100)
@@ -77,6 +86,7 @@ def train(config: TrainConfig) -> None:
         reward_config=reward_config,
         max_steps=config.max_episode_steps,
         frame_store=frame_store,
+        start_state=start_state,
     )
 
     # Agent (reuse the same frame store)
@@ -321,7 +331,7 @@ def train(config: TrainConfig) -> None:
         writer.close()
 
 
-def _evaluate(env: GBEnv, agent: DQNAgent, episodes: int) -> list[float]:
+def _evaluate(env: GBEnv, agent: DQNAgent, episodes: int, checkpoint_path: str = "") -> list[float]:
     """Run evaluation episodes with epsilon=0."""
     rewards: list[float] = []
     for _ in range(episodes):
@@ -366,6 +376,11 @@ def main() -> None:
     parser.add_argument(
         "--seq-len", type=int, default=32, help="LSTM sequence length (1 to disable)"
     )
+    parser.add_argument(
+        "--start-state",
+        default="",
+        help="Pre-saved start state to load on episode reset (instead of hard reset)",
+    )
 
     args = parser.parse_args()
 
@@ -392,6 +407,7 @@ def main() -> None:
         eval_interval=args.eval_interval,
         save_interval=args.save_interval,
         ram_scanner_config=args.ram_scanner,
+        start_state=args.start_state,
     )
 
     train(train_cfg)

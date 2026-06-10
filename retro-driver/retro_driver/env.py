@@ -45,6 +45,7 @@ class GBEnv(gym.Env):
         max_steps: int = 10_000,
         frame_store: FrameStore | None = None,
         boot_frames: int = 60,
+        start_state: str | Path = "",
     ) -> None:
         super().__init__()
 
@@ -56,6 +57,7 @@ class GBEnv(gym.Env):
         self.client = GBWSClient(gbagent_url)
         self.reward = RewardSystem(reward_config or RewardConfig())
         self.frame_store = frame_store
+        self._start_state = Path(start_state) if start_state else Path()
 
         self.observation_space = spaces.Box(
             low=0,
@@ -84,9 +86,14 @@ class GBEnv(gym.Env):
         super().reset(seed=seed)
 
         self.client.start()
-        self.client.reset()
-        self.client.wait_frames(60)
-        self._skip_intro()
+
+        # Load a pre-saved start state (created manually) instead of
+        # hard-resetting the emulator. The model never calls client.reset().
+        # If --load-state is set on the Go side, this isn't strictly
+        # needed on first boot, but it provides a clean episode restart.
+        if self._start_state:
+            self.client.load_state(str(self._start_state))
+            self.client.wait_frames(4)
 
         self._step_count = 0
         self._prev_frame = None
@@ -172,45 +179,6 @@ class GBEnv(gym.Env):
 
     def _stack(self) -> np.ndarray:
         return np.stack(self._frames, axis=0)
-
-    def _skip_intro(self) -> None:
-        """Script through the Pokemon Red/Blue intro (title, Oak, starter, rival)."""
-        import time
-
-        a = lambda: (self.client.press_button("A"), self.client.wait_frames(4), self.client.release_all())
-        wait = lambda f: self.client.wait_frames(f)
-
-        wait(120)  # let boot ROM finish
-
-        # Title screen → press Start
-        self.client.press_button("START")
-        wait(30)
-        self.client.release_all()
-        wait(30)
-
-        # Oak intro dialog + name selection: mash A generously
-        for _ in range(100):
-            a()
-
-        # Walk down into the tall grass (triggers Oak to stop you)
-        self.client.press_button("DOWN")
-        wait(60)
-        self.client.release_all()
-        wait(180)  # Oak cutscene + walk to lab
-
-        # Lab dialog: mash A through Oak's explanations
-        for _ in range(80):
-            a()
-
-        # Select starter + more dialog
-        for _ in range(40):
-            a()
-
-        # Walk up to exit
-        self.client.press_button("UP")
-        wait(90)
-        self.client.release_all()
-        wait(30)
 
     def _detect_game_over(self, frame: np.ndarray) -> bool:
         h, w = frame.shape

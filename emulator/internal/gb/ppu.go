@@ -522,6 +522,14 @@ func (p *PPUCore) GetState() PPUState {
 	}
 }
 
+func (p *PPUCore) SetState(s PPUState) {
+	p.ly = s.LY
+	p.lcdc = s.LCDC
+	p.stat = s.STAT
+	p.frameCtr = s.FrameCount
+	p.updateMode()
+}
+
 func (p *PPUCore) GetScreen() [160][144]byte {
 	return p.screen
 }

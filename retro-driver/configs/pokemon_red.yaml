@@ -11,6 +11,12 @@
 #   stuck_penalty — applies penalty_per_step after grace_period steps of unchanged value
 
 game: "pokemon_red"
+
+# Pre-saved start state loaded on episode reset (instead of hard reset).
+# Create this manually: boot the game, play through the intro to the
+# desired starting position, then save_state via the dashboard.
+start_state: "checkpoints/pokemon_red_outskirts.sav"
+
 scanners:
 
   # ── Title screen / intro anti-idle ──────────────────────

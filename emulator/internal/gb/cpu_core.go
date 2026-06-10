@@ -318,6 +318,19 @@ func (c *Core) GetState() CPUState {
 	}
 }
 
+func (c *Core) SetState(s CPUState) {
+	c.AF = s.AF
+	c.BC = s.BC
+	c.DE = s.DE
+	c.HL = s.HL
+	c.SP = s.SP
+	c.PC = s.PC
+	c.IME = s.IME
+	c.Halted = s.Halted
+	c.Stopped = s.Stopped
+	c.Cycles = s.Cycles
+}
+
 // NewCoreCPU is an alias for NewCore (ALU test compatibility).
 func NewCoreCPU(mmu MMU) *Core { return NewCore(mmu) }
 
