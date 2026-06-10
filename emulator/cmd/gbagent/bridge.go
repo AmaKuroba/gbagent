@@ -184,6 +184,7 @@ func newBridge(mmu *gb.MemoryBus, cpu *gb.Core, ppu *gb.PPUCore, timer *gb.Timer
 // SaveState persists the full emulator state to a gob file.
 // Thread-safe: runs on the background processor goroutine.
 func (b *mcpBridge) SaveState(path string) error {
+	b.broadcastAction("save_state", path)
 	result := b.exec(func() any {
 		state := saveFile{
 			CPU:   b.cpu.GetState(),
@@ -217,6 +218,7 @@ func (b *mcpBridge) SaveState(path string) error {
 // LoadState restores the full emulator state from a gob file.
 // Thread-safe: runs on the background processor goroutine.
 func (b *mcpBridge) LoadState(path string) error {
+	b.broadcastAction("load_state", path)
 	result := b.exec(func() any {
 		f, err := os.Open(path)
 		if err != nil {

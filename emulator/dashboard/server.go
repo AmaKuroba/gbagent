@@ -171,12 +171,16 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				log.Printf("dashboard: saving state to %s", stateMsg.SaveState)
 				if err := s.SaveStateFunc(stateMsg.SaveState); err != nil {
 					log.Printf("dashboard: save_state error: %v", err)
+				} else {
+					log.Printf("dashboard: saved state to %s", stateMsg.SaveState)
 				}
 			}
 			if stateMsg.LoadState != "" && s.LoadStateFunc != nil {
 				log.Printf("dashboard: loading state from %s", stateMsg.LoadState)
 				if err := s.LoadStateFunc(stateMsg.LoadState); err != nil {
 					log.Printf("dashboard: load_state error: %v", err)
+				} else {
+					log.Printf("dashboard: loaded state from %s", stateMsg.LoadState)
 				}
 			}
 		}

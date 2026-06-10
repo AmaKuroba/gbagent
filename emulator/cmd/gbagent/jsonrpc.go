@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/AmaKuroba/gbagent/internal/gb"
@@ -240,6 +241,9 @@ func (h *jsonrpcHandler) handleSaveState(req jsonrpcRequest, resp *jsonrpcRespon
 				state.BatteryRAM = ram
 			}
 		}
+		if err := os.MkdirAll(filepath.Dir(params.Path), 0755); err != nil {
+			return err
+		}
 		f, err := os.Create(params.Path)
 		if err != nil {
 			return err
@@ -277,6 +281,10 @@ func (h *jsonrpcHandler) handleLoadState(req jsonrpcRequest, resp *jsonrpcRespon
 		if err != nil {
 			return err
 		}
+		h.bridge.cpu.SetState(state.CPU)
+		h.bridge.ppu.SetState(state.PPU)
+		h.bridge.timer.SetState(state.Timer)
+
 		if len(state.BatteryRAM) > 0 && h.bridge.cart != nil && h.bridge.cart.HasBattery() {
 			h.bridge.cart.LoadRAM(state.BatteryRAM)
 		}
