@@ -196,15 +196,15 @@ func runServe(romPath string, port int, mcpPort int) {
 			)
 			hub.BroadcastText([]byte(stateJSON))
 
-		// Broadcast accumulated audio samples as a binary message.
-		if audioBuf := apu.GetAudioBuffer(); len(audioBuf) > 0 {
-			b := make([]byte, 2+len(audioBuf)*2) // 2-byte sample count + raw int16 LE
-			binary.LittleEndian.PutUint16(b[:2], uint16(len(audioBuf)/2))
-			for i, s := range audioBuf {
-				binary.LittleEndian.PutUint16(b[2+i*2:], uint16(s))
+			// Broadcast accumulated audio samples as a binary message.
+			if audioBuf := apu.GetAudioBuffer(); len(audioBuf) > 0 {
+				b := make([]byte, 2+len(audioBuf)*2)
+				binary.LittleEndian.PutUint16(b[:2], uint16(len(audioBuf)/2))
+				for i, s := range audioBuf {
+					binary.LittleEndian.PutUint16(b[2+i*2:], uint16(s))
+				}
+				hub.BroadcastBinary(append([]byte{0x01}, b...))
 			}
-			hub.BroadcastBinary(append([]byte{0x01}, b...))
-		}
 		}
 	}
 }

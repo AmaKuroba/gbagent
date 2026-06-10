@@ -350,8 +350,10 @@ type APU struct {
 	// Samples stored as 16-bit signed PCM (mono interleaved as left/right pairs).
 	audioBuf    []int16 // accumulated audio samples for the current frame
 	sampleAccum int     // T-cycle accumulator for sample rate generation
-	hpL         int     // high-pass filter state (left, previous sample)
-	hpR         int     // high-pass filter state (right, previous sample)
+	hpLIn       int16   // high-pass filter: x[n-1] (left)
+	hpLOut      int     // high-pass filter: y[n-1] (left)
+	hpRIn       int16   // high-pass filter: x[n-1] (right)
+	hpROut      int     // high-pass filter: y[n-1] (right)
 }
 
 // NewAPU creates a new APU instance with default power-on state.
@@ -606,8 +608,10 @@ func (a *APU) resetRegisters() {
 	*a.ch4 = noiseChannel{}
 	a.audioBuf = a.audioBuf[:0]
 	a.sampleAccum = 0
-	a.hpL = 0
-	a.hpR = 0
+	a.hpLIn = 0
+	a.hpROut = 0
+	a.hpRIn = 0
+	a.hpLOut = 0
 }
 
 // reloadLengthCounter reloads the length counter for the given channel.
@@ -880,10 +884,9 @@ func (a *APU) getMixedSample() (int16, int16) {
 	// Using integer math: y[n] = x[n] - x[n-1] + (y[n-1] * 999) / 1000
 	fl := int16(ls)
 	fr := int16(rs)
-	lp := a.hpL
-	rp := a.hpR
-	hl := int(fl) - lp + (a.hpL*999)/1000
-	hr := int(fr) - rp + (a.hpR*999)/1000
+	// y[n] = x[n] - x[n-1] + 0.999 * y[n-1]
+	hl := int(fl) - int(a.hpLIn) + (a.hpLOut*999)/1000
+	hr := int(fr) - int(a.hpRIn) + (a.hpROut*999)/1000
 
 	// Clamp after filter.
 	if hl > 32767 {
@@ -899,8 +902,10 @@ func (a *APU) getMixedSample() (int16, int16) {
 		hr = -32768
 	}
 
-	a.hpL = int(fl)  // x[n-1] for next frame
-	a.hpR = int(fr)
+	a.hpLIn = fl   // x[n-1] for next frame
+	a.hpLOut = hl  // y[n-1] for next frame
+	a.hpRIn = fr
+	a.hpROut = hr
 
 	return int16(hl), int16(hr)
 }
