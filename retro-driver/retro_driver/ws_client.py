@@ -197,8 +197,15 @@ class GBWSClient:
         self.call("load_state", {"path": str(path)})
 
     def reset(self) -> None:
-        """Reset the emulator."""
+        """Reset the emulator (hard reset, not available to training)."""
         self.call("reset", {})
+
+    def reset_state(self, path: str | None = None) -> None:
+        """Reset to a saved start state (uses --load-state path if path is None)."""
+        params: dict[str, Any] = {}
+        if path:
+            params["path"] = path
+        self.call("reset_state", params)
 
     # ── helpers ──────────────────────────────────────────────
 

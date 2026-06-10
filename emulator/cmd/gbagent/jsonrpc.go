@@ -50,10 +50,12 @@ type jsonrpcHandler struct {
 
 	mu      sync.Mutex
 	latched byte // bitmask of currently pressed buttons
+
+	startStatePath string // set via --load-state; used by reset_state
 }
 
-func newJSONRPCHandler(bridge *mcpBridge) *jsonrpcHandler {
-	return &jsonrpcHandler{bridge: bridge}
+func newJSONRPCHandler(bridge *mcpBridge, startStatePath string) *jsonrpcHandler {
+	return &jsonrpcHandler{bridge: bridge, startStatePath: startStatePath}
 }
 
 // exec queues a function via the bridge's background processor.
@@ -104,6 +106,8 @@ func (h *jsonrpcHandler) Handle(req jsonrpcRequest) jsonrpcResponse {
 	case "reset":
 		h.reset()
 		resp.Result = "ok"
+	case "reset_state":
+		h.handleResetState(req, &resp)
 	default:
 		resp.Error = &rpcError{Code: -32601, Message: fmt.Sprintf("method not found: %s", req.Method)}
 	}
@@ -124,6 +128,30 @@ func (h *jsonrpcHandler) reset() {
 		h.bridge.cpu.PC = 0x0000
 		return nil
 	})
+}
+
+// handleResetState loads the saved start state, optionally at a custom path.
+// If no path param is given, falls back to --load-state (set on startup).
+func (h *jsonrpcHandler) handleResetState(req jsonrpcRequest, resp *jsonrpcResponse) {
+	var params struct{ Path string `json:"path,omitempty"` }
+	if req.Params != nil {
+		json.Unmarshal(req.Params, &params) //nolint: errcheck
+	}
+
+	path := params.Path
+	if path == "" {
+		path = h.startStatePath
+	}
+	if path == "" {
+		resp.Error = &rpcError{Code: -32602, Message: "no start state path (set --load-state or pass 'path' param)"}
+		return
+	}
+
+	if err := h.bridge.LoadState(path); err != nil {
+		resp.Error = &rpcError{Code: 1, Message: err.Error()}
+		return
+	}
+	resp.Result = "ok"
 }
 
 func (h *jsonrpcHandler) handleGetScreen(req jsonrpcRequest, resp *jsonrpcResponse) {
@@ -357,11 +385,11 @@ func (w *wsConn) Write(p []byte) (int, error) {
 }
 
 // handleWSJSONRPC handles one WebSocket JSON-RPC session.
-func handleWSJSONRPC(ws wsWriter, bridge *mcpBridge) {
+func handleWSJSONRPC(ws wsWriter, bridge *mcpBridge, startStatePath string) {
 	log.Println("jsonrpc ws: client connected")
 	defer log.Println("jsonrpc ws: client disconnected")
 
-	handler := newJSONRPCHandler(bridge)
+	handler := newJSONRPCHandler(bridge, startStatePath)
 	reader := bufio.NewReader(ws)
 	enc := json.NewEncoder(ws)
 
@@ -388,7 +416,7 @@ func handleWSJSONRPC(ws wsWriter, bridge *mcpBridge) {
 }
 
 // runJSONRPCWebSocket starts a WebSocket server for JSON-RPC on the given port.
-func runJSONRPCWebSocket(bridge *mcpBridge, port int) {
+func runJSONRPCWebSocket(bridge *mcpBridge, port int, startStatePath string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		upgrader := websocket.Upgrader{
@@ -402,7 +430,7 @@ func runJSONRPCWebSocket(bridge *mcpBridge, port int) {
 		defer conn.Close() //nolint: errcheck
 
 		ws := &wsConn{conn: conn}
-		handleWSJSONRPC(ws, bridge)
+		handleWSJSONRPC(ws, bridge, startStatePath)
 	})
 
 	addr := fmt.Sprintf(":%d", port)

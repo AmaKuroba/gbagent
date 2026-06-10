@@ -45,7 +45,6 @@ class GBEnv(gym.Env):
         max_steps: int = 10_000,
         frame_store: FrameStore | None = None,
         boot_frames: int = 60,
-        start_state: str | Path = "",
     ) -> None:
         super().__init__()
 
@@ -57,7 +56,6 @@ class GBEnv(gym.Env):
         self.client = GBWSClient(gbagent_url)
         self.reward = RewardSystem(reward_config or RewardConfig())
         self.frame_store = frame_store
-        self._start_state = Path(start_state) if start_state else Path()
 
         self.observation_space = spaces.Box(
             low=0,
@@ -87,13 +85,10 @@ class GBEnv(gym.Env):
 
         self.client.start()
 
-        # Load a pre-saved start state (created manually) instead of
-        # hard-resetting the emulator. The model never calls client.reset().
-        # If --load-state is set on the Go side, this isn't strictly
-        # needed on first boot, but it provides a clean episode restart.
-        if self._start_state:
-            self.client.load_state(str(self._start_state))
-            self.client.wait_frames(4)
+        # Load the emulator's saved start state (--load-state on Go side)
+        # instead of hard-resetting. The model never calls client.reset().
+        self.client.reset_state()
+        self.client.wait_frames(4)
 
         self._step_count = 0
         self._prev_frame = None

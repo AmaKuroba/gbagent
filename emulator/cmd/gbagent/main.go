@@ -130,7 +130,7 @@ func runServe(romPath string, port int, jsonrpcPort int, loadState string) {
 
 	// Optional JSON-RPC WebSocket server (used by training agents).
 	if jsonrpcPort > 0 {
-		go runJSONRPCWebSocket(bridge, jsonrpcPort)
+		go runJSONRPCWebSocket(bridge, jsonrpcPort, loadState)
 	}
 
 	// If load-state is set, re-broadcast the loaded screen once
