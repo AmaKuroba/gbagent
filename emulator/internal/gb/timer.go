@@ -165,6 +165,24 @@ func (t *Timer) SetState(s TimerState) {
 	t.TAC = s.TAC
 }
 
+// GetFullState returns the timer state including internal cycle counters.
+func (t *Timer) GetFullState() TimerFullState {
+	return TimerFullState{
+		DIV: t.DIV, TIMA: t.TIMA, TMA: t.TMA, TAC: t.TAC,
+		DivCycles: t.divCycles, TimaCycles: t.timaCycles,
+	}
+}
+
+// SetFullState restores timer state from a TimerFullState.
+func (t *Timer) SetFullState(s TimerFullState) {
+	t.DIV = s.DIV
+	t.TIMA = s.TIMA
+	t.TMA = s.TMA
+	t.TAC = s.TAC
+	t.divCycles = s.DivCycles
+	t.timaCycles = s.TimaCycles
+}
+
 // TimerState is a debug snapshot of the timer hardware.
 type TimerState struct {
 	DIV   byte

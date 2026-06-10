@@ -12,6 +12,10 @@ type Cartridge interface {
 	// TickRTC advances the real-time clock by the given number of seconds.
 	// Only MBC3 timer cartridges implement this; others are no-ops.
 	TickRTC(seconds int64)
+	// GetState returns MBC registers for full save-state serialisation.
+	// SetState restores MBC registers from a previously saved state.
+	GetState() MBCState
+	SetState(MBCState)
 }
 
 // CartridgeType identifies the MBC type from the cartridge header byte at 0x0147.
@@ -310,6 +314,23 @@ func (c *mbc1Cartridge) LoadRAM(data []byte) {
 	}
 }
 
+func (c *mbc1Cartridge) GetState() MBCState {
+	return MBCState{
+		RamEnabled: c.ramEnabled,
+		RomBankLow: c.romBank,
+		RamBankReg: c.ramBankReg,
+		Mode:       c.mode,
+		MBCType:    1,
+	}
+}
+
+func (c *mbc1Cartridge) SetState(s MBCState) {
+	c.ramEnabled = s.RamEnabled
+	c.romBank = s.RomBankLow
+	c.ramBankReg = s.RamBankReg
+	c.mode = s.Mode
+}
+
 // No-op TickRTC: MBC1 has no RTC.
 func (c *mbc1Cartridge) TickRTC(seconds int64) {}
 
@@ -455,6 +476,19 @@ func (c *mbc2Cartridge) LoadRAM(data []byte) {
 	}
 	n := copy(c.ram[:], data)
 	_ = n
+}
+
+func (c *mbc2Cartridge) GetState() MBCState {
+	return MBCState{
+		RamEnabled: c.ramEnabled,
+		RomBankLow: c.romBank,
+		MBCType:    2,
+	}
+}
+
+func (c *mbc2Cartridge) SetState(s MBCState) {
+	c.ramEnabled = s.RamEnabled
+	c.romBank = s.RomBankLow & 0x0F
 }
 
 // No-op TickRTC: MBC2 has no RTC.
@@ -675,6 +709,30 @@ func (c *mbc3Cartridge) TickRTC(seconds int64) {
 	totalDays := c.rtcClock / 86400
 	c.rtcRegs[3] = byte(totalDays & 0xFF)          // DL
 	c.rtcRegs[4] = (c.rtcRegs[4] & 0xC0) | byte((totalDays>>8)&0x01) // DH
+}
+
+func (c *mbc3Cartridge) GetState() MBCState {
+	return MBCState{
+		RamEnabled:   c.ramEnabled,
+		RomBankLow:   c.romBank,
+		RamBankReg:   c.ramBank,
+		HasRTC:       c.hasTimer,
+		RTCRegs:      c.rtcRegs,
+		RTCLatched:   c.rtcLatched,
+		RTCLatchStep: byte(c.latchStep),
+		RTCClock:     c.rtcClock,
+		MBCType:      3,
+	}
+}
+
+func (c *mbc3Cartridge) SetState(s MBCState) {
+	c.ramEnabled = s.RamEnabled
+	c.romBank = s.RomBankLow & 0x7F
+	c.ramBank = s.RamBankReg
+	c.rtcRegs = s.RTCRegs
+	c.rtcLatched = s.RTCLatched
+	c.latchStep = int(s.RTCLatchStep)
+	c.rtcClock = s.RTCClock
 }
 
 func (c *mbc3Cartridge) GetTitle() string {
@@ -948,6 +1006,23 @@ func (c *mbc5Cartridge) LoadRAM(data []byte) {
 			break
 		}
 	}
+}
+
+func (c *mbc5Cartridge) GetState() MBCState {
+	return MBCState{
+		RamEnabled: c.ramEnabled,
+		RomBankLow: c.romBankLow,
+		RomBankHi:  c.romBankHigh,
+		RamBankReg: c.ramBankReg,
+		MBCType:    5,
+	}
+}
+
+func (c *mbc5Cartridge) SetState(s MBCState) {
+	c.ramEnabled = s.RamEnabled
+	c.romBankLow = s.RomBankLow
+	c.romBankHigh = s.RomBankHi & 0x01
+	c.ramBankReg = s.RamBankReg
 }
 
 // No-op TickRTC: MBC5 has no RTC.

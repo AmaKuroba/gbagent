@@ -519,6 +519,71 @@ func (m *MemoryBus) LoadBootROM(data []byte) {
 	m.bootROMEnabled = true
 }
 
+// DumpFullState captures the complete memory bus and I/O state.
+func (m *MemoryBus) DumpFullState() FullState {
+	return FullState{
+		WRAM: m.wram,
+		VRAM: m.vram,
+		OAM:  m.oam,
+		HRAM: m.hram,
+		IO:   m.io,
+		IE:   m.ie,
+
+		BootROMEnabled: m.bootROMEnabled,
+		BootROM:        m.bootROM,
+
+		DMA: DMAState{
+			Active:    m.dmaActive,
+			Source:    m.dmaSource,
+			Remaining: m.dmaRemaining,
+		},
+		SerialActive: m.serialActive,
+		SerialCycles: m.serialCycles,
+		SB:           m.sb,
+		SC:           m.sc,
+
+		CPU:  m.cpuRef.GetState(),
+		PPU:  m.ppu.GetState(),
+		Timer: m.timer.GetFullState(),
+		APU:  m.apu.GetFullState(),
+
+		MBC:        m.Cartridge.GetState(),
+		BatteryRAM: m.Cartridge.SaveRAM(),
+	}
+}
+
+// LoadFullState restores the memory bus and all components from a FullState.
+func (m *MemoryBus) LoadFullState(s FullState) {
+	m.wram = s.WRAM
+	m.vram = s.VRAM
+	m.oam = s.OAM
+	m.hram = s.HRAM
+	m.io = s.IO
+	m.ie = s.IE
+
+	m.bootROMEnabled = s.BootROMEnabled
+	m.bootROM = s.BootROM
+
+	m.dmaActive = s.DMA.Active
+	m.dmaSource = s.DMA.Source
+	m.dmaRemaining = s.DMA.Remaining
+	m.serialActive = s.SerialActive
+	m.serialCycles = s.SerialCycles
+	m.sb = s.SB
+	m.sc = s.SC
+
+	m.cpuRef.SetState(s.CPU)
+	m.ppu.SetState(s.PPU)
+	m.timer.SetFullState(s.Timer)
+	m.apu.SetFullState(s.APU)
+
+	m.Cartridge.SetState(s.MBC)
+	if len(s.BatteryRAM) > 0 && m.Cartridge.HasBattery() {
+		m.Cartridge.LoadRAM(s.BatteryRAM)
+	}
+	m.lastPPUCycle = m.cpuRef.Cycles
+}
+
 // StepDevices advances all emulated devices (PPU, Timer, APU, DMA, Serial)
 // by the given number of T-cycles. Called by Core.stepDevices after each M-cycle.
 // cpuRef.Cycles must have been incremented before this call so CatchUpPPU's
@@ -582,6 +647,12 @@ func (c *romOnlyCartridge) SaveRAM() []byte {
 
 func (c *romOnlyCartridge) LoadRAM(data []byte) {
 }
+
+func (c *romOnlyCartridge) GetState() MBCState {
+	return MBCState{RamEnabled: true, MBCType: 0}
+}
+
+func (c *romOnlyCartridge) SetState(s MBCState) {}
 
 func (c *romOnlyCartridge) TickRTC(seconds int64) {
 	// ROM-only cartridge has no RTC

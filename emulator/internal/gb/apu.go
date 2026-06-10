@@ -932,6 +932,42 @@ func (a *APU) fillAudioBuffer(cycles int) {
 
 // GetAudioBuffer returns the accumulated audio samples and clears the buffer.
 // Returns stereo interleaved 16-bit PCM (L,R,L,R,...).
+// GetFullState returns the complete APU state for save-state serialisation.
+func (a *APU) GetFullState() APUFullState {
+	return APUFullState{
+		Regs:      a.regs,
+		WaveRAM:   a.waveRAM,
+		Ch1On:     a.ch1On,
+		Ch2On:     a.ch2On,
+		Ch3On:     a.ch3On,
+		Ch4On:     a.ch4On,
+		CycAccum:  a.cyclAccum,
+		SeqStep:   a.seqStep,
+		LengthCnt: a.lengthCnt,
+		HPIntoL:   a.hpLIn,
+		HPOutL:    a.hpLOut,
+		HPIntoR:   a.hpRIn,
+		HPOutR:    a.hpROut,
+	}
+}
+
+// SetFullState restores the APU from a previously saved APUFullState.
+func (a *APU) SetFullState(s APUFullState) {
+	a.regs = s.Regs
+	a.waveRAM = s.WaveRAM
+	a.ch1On = s.Ch1On
+	a.ch2On = s.Ch2On
+	a.ch3On = s.Ch3On
+	a.ch4On = s.Ch4On
+	a.cyclAccum = s.CycAccum
+	a.seqStep = s.SeqStep
+	a.lengthCnt = s.LengthCnt
+	a.hpLIn = s.HPIntoL
+	a.hpLOut = s.HPOutL
+	a.hpRIn = s.HPIntoR
+	a.hpROut = s.HPOutR
+}
+
 func (a *APU) GetAudioBuffer() []int16 {
 	buf := a.audioBuf
 	a.audioBuf = make([]int16, 0, 2048)

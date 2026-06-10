@@ -259,16 +259,7 @@ func (h *jsonrpcHandler) handleSaveState(req jsonrpcRequest, resp *jsonrpcRespon
 	}
 	h.bridge.broadcastAction("save_state", params.Path)
 	result := h.exec(func() any {
-		state := saveFile{
-			CPU:   h.bridge.cpu.GetState(),
-			PPU:   h.bridge.ppu.GetState(),
-			Timer: h.bridge.timer.GetState(),
-		}
-		if h.bridge.cart != nil && h.bridge.cart.HasBattery() {
-			if ram := h.bridge.cart.SaveRAM(); ram != nil {
-				state.BatteryRAM = ram
-			}
-		}
+		state := h.bridge.mmu.DumpFullState()
 		if err := os.MkdirAll(filepath.Dir(params.Path), 0755); err != nil {
 			return err
 		}
@@ -301,7 +292,7 @@ func (h *jsonrpcHandler) handleLoadState(req jsonrpcRequest, resp *jsonrpcRespon
 		if err != nil {
 			return err
 		}
-		var state saveFile
+		var state gb.FullState
 		err = gob.NewDecoder(f).Decode(&state)
 		if cerr := f.Close(); cerr != nil && err == nil {
 			err = cerr
@@ -309,13 +300,7 @@ func (h *jsonrpcHandler) handleLoadState(req jsonrpcRequest, resp *jsonrpcRespon
 		if err != nil {
 			return err
 		}
-		h.bridge.cpu.SetState(state.CPU)
-		h.bridge.ppu.SetState(state.PPU)
-		h.bridge.timer.SetState(state.Timer)
-
-		if len(state.BatteryRAM) > 0 && h.bridge.cart != nil && h.bridge.cart.HasBattery() {
-			h.bridge.cart.LoadRAM(state.BatteryRAM)
-		}
+		h.bridge.mmu.LoadFullState(state)
 		return nil
 	})
 	if err, ok := result.(error); ok {
