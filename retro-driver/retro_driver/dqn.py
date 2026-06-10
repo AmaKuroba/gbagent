@@ -28,6 +28,7 @@ def get_device() -> torch.device:
 
 
 DEVICE = get_device()
+print(f"[retro-driver] DQN device: {DEVICE}")
 
 
 # ---- frame store (individual frames, not stacks) ------------------
