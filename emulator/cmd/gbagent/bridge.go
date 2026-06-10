@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 
@@ -193,6 +194,9 @@ func (b *mcpBridge) SaveState(path string) error {
 			if ram := b.cart.SaveRAM(); ram != nil {
 				state.BatteryRAM = ram
 			}
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return err
 		}
 		f, err := os.Create(path)
 		if err != nil {
