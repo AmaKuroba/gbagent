@@ -86,7 +86,11 @@ train args='':
 # Like train but starts gbagent + opens dashboard at http://localhost:8765
 # checkpoint: optional --load-state path (pre-saved state to skip intro)
 watch-train rom checkpoint='' args='':
-    ../bin/gbagent serve --rom {{rom}} --jsonrpc-port 8767{{ if checkpoint != "" }} --load-state {{checkpoint}}{{ end }} & GBAGENT_PID=$! && sleep 2 && {{retro}} uv run python -m retro_driver.train {{args}}; kill $GBAGENT_PID 2>/dev/null; wait $GBAGENT_PID 2>/dev/null || true
+    #!/usr/bin/env bash
+    set -euo pipefail
+    GB_LOAD=
+    if [ -n "{{checkpoint}}" ]; then GB_LOAD="--load-state {{checkpoint}}"; fi
+    ../bin/gbagent serve --rom {{rom}} --jsonrpc-port 8767 $GB_LOAD & GBAGENT_PID=$! && sleep 2 && cd ../retro-driver && uv run python -m retro_driver.train {{args}}; kill $GBAGENT_PID 2>/dev/null; wait $GBAGENT_PID 2>/dev/null || true
 
 # Start TensorBoard to monitor training (http://localhost:6006)
 tensorboard:
