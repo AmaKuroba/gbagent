@@ -186,7 +186,7 @@ func newBridge(mmu *gb.MemoryBus, cpu *gb.Core, ppu *gb.PPUCore, timer *gb.Timer
 func (b *mcpBridge) SaveState(path string) error {
 	b.broadcastAction("save_state", path)
 	result := b.exec(func() any {
-		state := b.mmu.DumpFullState()
+		state := b.mmu.DumpEmulatorState()
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return err
 		}
@@ -217,12 +217,12 @@ func (b *mcpBridge) LoadState(path string) error {
 		}
 		defer f.Close()
 
-		var state gb.FullState
+		var state gb.EmulatorState
 		if err := gob.NewDecoder(f).Decode(&state); err != nil {
 			return err
 		}
 
-		b.mmu.LoadFullState(state)
+		b.mmu.LoadEmulatorState(state)
 		return nil
 	})
 	if err, ok := result.(error); ok {
@@ -301,7 +301,7 @@ var btnBits = map[string]byte{
 	"DOWN":   1 << 3,
 }
 
-// loadSavedState loads a gob-encoded FullState directly into the bridge's
+// loadSavedState loads a gob-encoded EmulatorState directly into the bridge's
 // emulator components. Used by --load-state to skip the intro on boot.
 func loadSavedState(bridge *mcpBridge, path string) error {
 	f, err := os.Open(path)
@@ -310,11 +310,11 @@ func loadSavedState(bridge *mcpBridge, path string) error {
 	}
 	defer f.Close()
 
-	var state gb.FullState
+	var state gb.EmulatorState
 	if err := gob.NewDecoder(f).Decode(&state); err != nil {
 		return fmt.Errorf("decode state: %w", err)
 	}
 
-	bridge.mmu.LoadFullState(state)
+	bridge.mmu.LoadEmulatorState(state)
 	return nil
 }

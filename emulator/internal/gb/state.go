@@ -132,9 +132,9 @@ type DMAState struct {
 	Remaining int
 }
 
-// FullState is a complete emulator snapshot for save/load.
+// EmulatorState is a complete emulator snapshot for save/load.
 // It captures everything needed to perfectly restore emulation.
-type FullState struct {
+type EmulatorState struct {
 	CPU        CPUState
 	PPU        PPUState
 	Timer      TimerState

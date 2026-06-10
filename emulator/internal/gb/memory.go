@@ -519,9 +519,9 @@ func (m *MemoryBus) LoadBootROM(data []byte) {
 	m.bootROMEnabled = true
 }
 
-// DumpFullState captures the complete memory bus and I/O state.
-func (m *MemoryBus) DumpFullState() FullState {
-	return FullState{
+// DumpEmulatorState captures the complete memory bus and I/O state.
+func (m *MemoryBus) DumpEmulatorState() EmulatorState {
+	return EmulatorState{
 		WRAM: m.wram,
 		VRAM: m.vram,
 		OAM:  m.oam,
@@ -552,8 +552,8 @@ func (m *MemoryBus) DumpFullState() FullState {
 	}
 }
 
-// LoadFullState restores the memory bus and all components from a FullState.
-func (m *MemoryBus) LoadFullState(s FullState) {
+// LoadEmulatorState restores the memory bus and all components from a EmulatorState.
+func (m *MemoryBus) LoadEmulatorState(s EmulatorState) {
 	m.wram = s.WRAM
 	m.vram = s.VRAM
 	m.oam = s.OAM

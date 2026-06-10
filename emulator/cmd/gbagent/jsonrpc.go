@@ -259,7 +259,7 @@ func (h *jsonrpcHandler) handleSaveState(req jsonrpcRequest, resp *jsonrpcRespon
 	}
 	h.bridge.broadcastAction("save_state", params.Path)
 	result := h.exec(func() any {
-		state := h.bridge.mmu.DumpFullState()
+		state := h.bridge.mmu.DumpEmulatorState()
 		if err := os.MkdirAll(filepath.Dir(params.Path), 0755); err != nil {
 			return err
 		}
@@ -292,7 +292,7 @@ func (h *jsonrpcHandler) handleLoadState(req jsonrpcRequest, resp *jsonrpcRespon
 		if err != nil {
 			return err
 		}
-		var state gb.FullState
+		var state gb.EmulatorState
 		err = gob.NewDecoder(f).Decode(&state)
 		if cerr := f.Close(); cerr != nil && err == nil {
 			err = cerr
@@ -300,7 +300,7 @@ func (h *jsonrpcHandler) handleLoadState(req jsonrpcRequest, resp *jsonrpcRespon
 		if err != nil {
 			return err
 		}
-		h.bridge.mmu.LoadFullState(state)
+		h.bridge.mmu.LoadEmulatorState(state)
 		return nil
 	})
 	if err, ok := result.(error); ok {
