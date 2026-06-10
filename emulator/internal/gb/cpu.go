@@ -8,10 +8,3 @@ type CPU interface {
 }
 
 // CPUState is a snapshot of the CPU registers and flags.
-type CPUState struct {
-	AF, BC, DE, HL, SP, PC uint16
-	IME                     bool
-	Halted                  bool
-	Stopped                 bool
-	Cycles                  uint64
-}

@@ -8,43 +8,7 @@ type PPU interface {
 	GetState() PPUState
 }
 
-// PPUState is a snapshot of PPU registers and timing (basic).
-type PPUState struct {
-	Mode       int
-	LY         byte
-	LCDC       byte
-	STAT       byte
-	FrameCount int
-}
 
-// PPUFullState captures all PPU internal state for save-state serialisation.
-type PPUFullState struct {
-	Mode       int
-	LY         byte
-	LYC        byte
-	STAT       byte
-	LCDC       byte
-	FrameCount int
-
-	DotCounter int
-	SCY        byte
-	SCX        byte
-	BGP        byte
-	OBP0       byte
-	OBP1       byte
-	WX         byte
-	WY         byte
-
-	IsRunning          bool
-	ScanlineRendered   bool
-	Mode2End           int
-	Mode3End           int
-	OAMScanned         bool
-	FirstFrameBlank    bool
-
-	// Framebuffer
-	Screen [160][144]byte
-}
 
 // PPU timing constants.
 const (
