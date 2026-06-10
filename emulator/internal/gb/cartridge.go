@@ -64,7 +64,7 @@ func (c CartridgeType) HasRumble() bool {
 // NewCartridge creates the appropriate cartridge type based on the ROM header.
 func NewCartridge(romData []byte) Cartridge {
 	if len(romData) < 0x150 {
-		return &romOnlyCartridge{data: romData}
+		return &romOnlyCartridge{MBCState: &MBCState{}, data: romData}
 	}
 
 	cType := CartridgeType(romData[0x147])
@@ -78,7 +78,7 @@ func NewCartridge(romData []byte) Cartridge {
 	case cType.IsMBC5():
 		return newMBC5(romData, cType)
 	default:
-		return &romOnlyCartridge{data: romData}
+		return &romOnlyCartridge{MBCState: &MBCState{}, data: romData}
 	}
 }
 
@@ -129,14 +129,11 @@ func ramBanksFromCode(code byte) int {
 // mbc1Cartridge implements MBC1 memory banking.
 // Supports up to 2MB ROM and/or 32KB RAM.
 type mbc1Cartridge struct {
-	data       []byte   // Full ROM contents
-	ram        [][]byte // RAM banks (each 8KB)
-	ramEnabled bool
-	romBank    byte // 5-bit ROM bank register (write to 2000-3FFF)
-	ramBankReg byte // 2-bit register (write to 4000-5FFF)
-	mode       byte // Banking mode (write to 6000-7FFF): 0=simple, 1=advanced
-	romBanks   int  // Number of 16KB ROM banks
-	ramBanks   int  // Number of 8KB RAM banks
+	*MBCState
+	data      []byte   // Full ROM contents
+	ram       [][]byte // RAM banks (each 8KB)
+	romBanks  int      // Number of 16KB ROM banks
+	ramBanks  int      // Number of 8KB RAM banks
 	hasBattery bool
 }
 
@@ -155,6 +152,7 @@ func newMBC1(romData []byte, cType CartridgeType) *mbc1Cartridge {
 	hasBattery := (cType == CartridgeMBC1RAMBattery)
 
 	return &mbc1Cartridge{
+		MBCState: &MBCState{MBCType: 1},
 		data:       romData,
 		ram:        ram,
 		romBanks:   nBanks,
@@ -165,14 +163,14 @@ func newMBC1(romData []byte, cType CartridgeType) *mbc1Cartridge {
 
 // getROMBank4000 returns the effective ROM bank number for the 4000-7FFF region.
 func (c *mbc1Cartridge) getROMBank4000() int {
-	lower := int(c.romBank)
+	lower := int(c.RomBankLow)
 	if lower == 0 {
 		lower = 1
 	}
 
 	if c.romBanks > 32 {
 		// Large ROM (>512KB): 2-bit register extends the upper bits
-		return ((int(c.ramBankReg) << 5) | lower) % c.romBanks
+		return ((int(c.RamBankReg) << 5) | lower) % c.romBanks
 	}
 
 	// Small ROM: just mask the lower bits to available banks
@@ -182,11 +180,11 @@ func (c *mbc1Cartridge) getROMBank4000() int {
 
 // getROMBank0000 returns the effective ROM bank number for the 0000-3FFF region.
 func (c *mbc1Cartridge) getROMBank0000() int {
-	if c.mode == 0 || c.romBanks <= 32 {
+	if c.Mode == 0 || c.romBanks <= 32 {
 		return 0
 	}
 	// Mode 1 with large ROM: bank is determined by the 2-bit register
-	bank := int(c.ramBankReg) << 5
+	bank := int(c.RamBankReg) << 5
 	if bank >= c.romBanks {
 		bank = 0
 	}
@@ -195,10 +193,10 @@ func (c *mbc1Cartridge) getROMBank0000() int {
 
 // getRAMBank returns the effective RAM bank number for the A000-BFFF region.
 func (c *mbc1Cartridge) getRAMBank() int {
-	if c.mode == 0 || c.ramBanks <= 1 {
+	if c.Mode == 0 || c.ramBanks <= 1 {
 		return 0
 	}
-	bank := int(c.ramBankReg) % c.ramBanks
+	bank := int(c.RamBankReg) % c.ramBanks
 	if bank >= len(c.ram) {
 		return 0
 	}
@@ -225,7 +223,7 @@ func (c *mbc1Cartridge) Read(addr uint16) byte {
 		return 0xFF
 
 	case addr >= 0xA000 && addr <= 0xBFFF:
-		if !c.ramEnabled || c.ramBanks == 0 {
+		if !c.RamEnabled || c.ramBanks == 0 {
 			return 0xFF // open bus
 		}
 		bank := c.getRAMBank()
@@ -241,22 +239,22 @@ func (c *mbc1Cartridge) Write(addr uint16, val byte) {
 	switch {
 	case addr <= 0x1FFF:
 		// RAM enable: writing 0x0A to low nibble enables
-		c.ramEnabled = (val & 0x0F) == 0x0A
+		c.RamEnabled = (val & 0x0F) == 0x0A
 
 	case addr >= 0x2000 && addr <= 0x3FFF:
 		// ROM bank number (lower 5 bits)
-		c.romBank = val & 0x1F
+		c.RomBankLow = val & 0x1F
 
 	case addr >= 0x4000 && addr <= 0x5FFF:
 		// RAM bank number OR upper bits of ROM bank number
-		c.ramBankReg = val & 0x03
+		c.RamBankReg = val & 0x03
 
 	case addr >= 0x6000 && addr <= 0x7FFF:
 		// Banking mode select
-		c.mode = val & 0x01
+		c.Mode = val & 0x01
 
 	case addr >= 0xA000 && addr <= 0xBFFF:
-		if c.ramEnabled && c.ramBanks > 0 {
+		if c.RamEnabled && c.ramBanks > 0 {
 			bank := c.getRAMBank()
 			c.ram[bank][addr-0xA000] = val
 		}
@@ -315,20 +313,11 @@ func (c *mbc1Cartridge) LoadRAM(data []byte) {
 }
 
 func (c *mbc1Cartridge) GetState() MBCState {
-	return MBCState{
-		RamEnabled: c.ramEnabled,
-		RomBankLow: c.romBank,
-		RamBankReg: c.ramBankReg,
-		Mode:       c.mode,
-		MBCType:    1,
-	}
+	return *c.MBCState
 }
 
 func (c *mbc1Cartridge) SetState(s MBCState) {
-	c.ramEnabled = s.RamEnabled
-	c.romBank = s.RomBankLow
-	c.ramBankReg = s.RamBankReg
-	c.mode = s.Mode
+	*c.MBCState = s
 }
 
 // No-op TickRTC: MBC1 has no RTC.
@@ -338,18 +327,11 @@ func (c *mbc1Cartridge) TickRTC(seconds int64) {}
 // MBC2 implementation
 // ---------------------------------------------------------------------------
 
-// mbc2Cartridge implements MBC2 memory banking.
-//
-// MBC2 has a unique design: ROM bank select and RAM enable are both controlled
-// through the 0x0000-0x3FFF range, distinguished by bit 8 of the address.
-// Built-in 512×4-bit RAM (no external RAM chip). Supports up to 256KB ROM
-// (16 banks).
 type mbc2Cartridge struct {
-	data       []byte    // Full ROM contents
-	ram        [0x200]byte // Internal 512×4-bit RAM (lower nibble only)
-	ramEnabled bool
-	romBank    byte // 4-bit ROM bank register (0→1 mapped)
-	romBanks   int  // Number of 16KB ROM banks
+	*MBCState
+	data      []byte      // Full ROM contents
+	ram       [0x200]byte // Internal 512×4-bit RAM (lower nibble only)
+	romBanks  int         // Number of 16KB ROM banks
 	hasBattery bool
 }
 
@@ -362,16 +344,16 @@ func newMBC2(romData []byte, cType CartridgeType) *mbc2Cartridge {
 	hasBattery := (cType == CartridgeMBC2RAMBattery)
 
 	return &mbc2Cartridge{
+		MBCState: &MBCState{RomBankLow: 1, MBCType: 2},
 		data:       romData,
-		romBanks:   nBanks,
+		romBanks:  nBanks,
 		hasBattery: hasBattery,
-		romBank:    1, // Default to bank 1 on startup
 	}
 }
 
 // getROMBank returns the effective ROM bank number for the 0x4000-0x7FFF region.
 func (c *mbc2Cartridge) getROMBank() int {
-	bank := int(c.romBank & 0x0F)
+	bank := int(c.RomBankLow & 0x0F)
 	if bank == 0 {
 		bank = 1
 	}
@@ -396,7 +378,7 @@ func (c *mbc2Cartridge) Read(addr uint16) byte {
 		return 0xFF
 
 	case addr >= 0xA000 && addr <= 0xBFFF:
-		if !c.ramEnabled {
+		if !c.RamEnabled {
 			return 0xFF
 		}
 		// Internal 512×4-bit RAM; bottom 9 address bits for linear mapping
@@ -415,18 +397,18 @@ func (c *mbc2Cartridge) Write(addr uint16, val byte) {
 	case addr <= 0x3FFF:
 		if addr&0x0100 == 0 {
 			// Bit 8 clear → RAM enable: low nibble == 0x0A enables
-			c.ramEnabled = (val & 0x0F) == 0x0A
+			c.RamEnabled = (val & 0x0F) == 0x0A
 		} else {
 			// Bit 8 set → ROM bank select: lower 4 bits, 0→1
 			bank := int(val & 0x0F)
 			if bank == 0 {
 				bank = 1
 			}
-			c.romBank = byte(bank % c.romBanks)
+			c.RomBankLow = byte(bank % c.romBanks)
 		}
 
 	case addr >= 0xA000 && addr <= 0xBFFF:
-		if c.ramEnabled {
+		if c.RamEnabled {
 			// Internal 512×4-bit RAM; bottom 9 address bits, lower nibble only
 			ramOffset := (addr - 0xA000) & 0x01FF
 			c.ram[ramOffset] = val & 0x0F
@@ -479,16 +461,11 @@ func (c *mbc2Cartridge) LoadRAM(data []byte) {
 }
 
 func (c *mbc2Cartridge) GetState() MBCState {
-	return MBCState{
-		RamEnabled: c.ramEnabled,
-		RomBankLow: c.romBank,
-		MBCType:    2,
-	}
+	return *c.MBCState
 }
 
 func (c *mbc2Cartridge) SetState(s MBCState) {
-	c.ramEnabled = s.RamEnabled
-	c.romBank = s.RomBankLow & 0x0F
+	*c.MBCState = s
 }
 
 // No-op TickRTC: MBC2 has no RTC.
@@ -514,19 +491,13 @@ func (c *mbc2Cartridge) TickRTC(seconds int64) {}
 //
 // Used by Pokémon G/S/C, Pokémon Yellow (J), and many other late-DMG/GBC games.
 type mbc3Cartridge struct {
-	data       []byte    // Full ROM contents
-	romBanks   int       // Number of 16KB ROM banks
-	ram        [][]byte  // RAM banks (each 8KB)
-	ramBanks   int       // Number of 8KB RAM banks
-	ramEnabled bool
-	romBank    byte      // 7-bit ROM bank register (0 → bank 1)
-	ramBank    byte      // RAM bank select (0x00-0x03) or RTC register select (0x08-0x0C)
-	rtcRegs    [5]byte   // RTC registers: S, M, H, DL, DH
-	rtcLatched [5]byte   // Latched RTC register snapshot
-	latchStep  int       // Latch sequence step (0=idle, 1=first write, 2=latched)
-	rtcClock   int64     // RTC tick counter (in seconds)
+	*MBCState
+	data      []byte   // Full ROM contents
+	romBanks  int      // Number of 16KB ROM banks
+	ram       [][]byte // RAM banks (each 8KB)
+	ramBanks  int      // Number of 8KB RAM banks
 	hasBattery bool
-	hasTimer   bool      // true for types 0x0F and 0x10 (with RTC)
+	hasTimer   bool // true for types 0x0F and 0x10 (with RTC)
 }
 
 func newMBC3(romData []byte, cType CartridgeType) *mbc3Cartridge {
@@ -549,6 +520,7 @@ func newMBC3(romData []byte, cType CartridgeType) *mbc3Cartridge {
 		cType == CartridgeMBC3TimerRAMBattery
 
 	return &mbc3Cartridge{
+		MBCState: &MBCState{MBCType: 3},
 		data:       romData,
 		ram:        ram,
 		romBanks:   nBanks,
@@ -561,7 +533,7 @@ func newMBC3(romData []byte, cType CartridgeType) *mbc3Cartridge {
 // getROMBank returns the effective ROM bank number for the 0x4000-0x7FFF region.
 // MBC3 uses a 7-bit register; 0 maps to bank 1.
 func (c *mbc3Cartridge) getROMBank() int {
-	bank := int(c.romBank & 0x7F)
+	bank := int(c.RomBankLow & 0x7F)
 	if bank == 0 {
 		bank = 1
 	}
@@ -570,7 +542,7 @@ func (c *mbc3Cartridge) getROMBank() int {
 
 // hasRAMSelected returns true if the current ramBank value selects RAM (0x00-0x03).
 func (c *mbc3Cartridge) hasRAMSelected() bool {
-	return c.ramBank <= 0x03 && c.ramBanks > 0
+	return c.RamBankReg <= 0x03 && c.ramBanks > 0
 }
 
 // Read reads from the MBC3 cartridge address space.
@@ -592,20 +564,20 @@ func (c *mbc3Cartridge) Read(addr uint16) byte {
 		return 0xFF
 
 	case addr >= 0xA000 && addr <= 0xBFFF:
-		if !c.ramEnabled {
+		if !c.RamEnabled {
 			return 0xFF
 		}
 		if c.hasRAMSelected() {
-			bank := int(c.ramBank) % c.ramBanks
+			bank := int(c.RamBankReg) % c.ramBanks
 			if bank >= len(c.ram) {
 				return 0xFF
 			}
 			return c.ram[bank][addr-0xA000]
 		}
 		// RTC register read (ramBank 0x08-0x0C)
-		if c.hasTimer && c.ramBank >= 0x08 && c.ramBank <= 0x0C {
-			reg := int(c.ramBank - 0x08)
-			return c.rtcLatched[reg]
+		if c.hasTimer && c.RamBankReg >= 0x08 && c.RamBankReg <= 0x0C {
+			reg := int(c.RamBankReg - 0x08)
+			return c.RTCLatched[reg]
 		}
 		return 0xFF
 
@@ -619,15 +591,15 @@ func (c *mbc3Cartridge) Write(addr uint16, val byte) {
 	switch {
 	case addr <= 0x1FFF:
 		// RAM enable: writing 0x0A to low nibble enables
-		c.ramEnabled = (val & 0x0F) == 0x0A
+		c.RamEnabled = (val & 0x0F) == 0x0A
 
 	case addr >= 0x2000 && addr <= 0x3FFF:
 		// ROM bank number (7-bit, 0 maps to bank 1)
-		c.romBank = val & 0x7F
+		c.RomBankLow = val & 0x7F
 
 	case addr >= 0x4000 && addr <= 0x5FFF:
 		// RAM bank number (0x00-0x03) or RTC register select (0x08-0x0C)
-		c.ramBank = val
+		c.RamBankReg = val
 
 	case addr >= 0x6000 && addr <= 0x7FFF:
 		// RTC latch control
@@ -636,31 +608,31 @@ func (c *mbc3Cartridge) Write(addr uint16, val byte) {
 		}
 		switch {
 		case val == 0x00:
-			c.latchStep = 1
-		case val == 0x01 && c.latchStep == 1:
+			c.RTCLatchStep = 1
+		case val == 0x01 && c.RTCLatchStep == 1:
 			c.latchTime()
-			c.latchStep = 2
+			c.RTCLatchStep = 2
 		default:
-			c.latchStep = 0
+			c.RTCLatchStep = 0
 		}
 
 	case addr >= 0xA000 && addr <= 0xBFFF:
-		if !c.ramEnabled {
+		if !c.RamEnabled {
 			return
 		}
 		if c.hasRAMSelected() {
-			bank := int(c.ramBank) % c.ramBanks
+			bank := int(c.RamBankReg) % c.ramBanks
 			if bank < len(c.ram) {
 				c.ram[bank][addr-0xA000] = val
 			}
-		} else if c.hasTimer && c.ramBank >= 0x08 && c.ramBank <= 0x0C {
+		} else if c.hasTimer && c.RamBankReg >= 0x08 && c.RamBankReg <= 0x0C {
 			// RTC register write
-			reg := int(c.ramBank - 0x08)
+			reg := int(c.RamBankReg - 0x08)
 			if reg == 4 {
 				// DH: writing clears carry (bit 7), sets day MSB (bit 0) and halt (bit 6)
-				c.rtcRegs[4] = val & 0x41
+				c.RTCRegs[4] = val & 0x41
 			} else {
-				c.rtcRegs[reg] = val
+				c.RTCRegs[reg] = val
 			}
 			c.syncClockFromRegs()
 		}
@@ -670,69 +642,53 @@ func (c *mbc3Cartridge) Write(addr uint16, val byte) {
 // latchTime snapshots the current RTC register values into the latched buffer.
 // This is triggered by the latch sequence (write 0x00 then 0x01 to 0x6000-0x7FFF).
 func (c *mbc3Cartridge) latchTime() {
-	c.rtcLatched = c.rtcRegs
+	c.RTCLatched = c.RTCRegs
 }
 
 // syncClockFromRegs recomputes rtcClock from the RTC register values.
 // Called after writing to RTC registers.
 func (c *mbc3Cartridge) syncClockFromRegs() {
-	days := int(c.rtcRegs[3]) | (int(c.rtcRegs[4]&0x01) << 8)
-	c.rtcClock = int64(days)*86400 +
-		int64(c.rtcRegs[2])*3600 +
-		int64(c.rtcRegs[1])*60 +
-		int64(c.rtcRegs[0])
+	days := int(c.RTCRegs[3]) | (int(c.RTCRegs[4]&0x01) << 8)
+	c.RTCClock = int64(days)*86400 +
+		int64(c.RTCRegs[2])*3600 +
+		int64(c.RTCRegs[1])*60 +
+		int64(c.RTCRegs[0])
 }
 
 // TickRTC advances the RTC by the given number of seconds.
 // If the RTC halt bit (DH bit 6) is set, the tick is ignored.
 // Detects day counter overflow and sets the carry bit (DH bit 7).
 func (c *mbc3Cartridge) TickRTC(seconds int64) {
-	if !c.hasTimer || c.rtcRegs[4]&0x40 != 0 {
+	if !c.hasTimer || c.RTCRegs[4]&0x40 != 0 {
 		return // halted or no timer hardware
 	}
 
 	// Track 9-bit day counter before advancing for carry detection
-	oldDays9 := (c.rtcClock / 86400) & 0x1FF
+	oldDays9 := (c.RTCClock / 86400) & 0x1FF
 
-	c.rtcClock += seconds
+	c.RTCClock += seconds
 
 	// Detect 9-bit day counter overflow (wrapped past 512 days)
-	newDays9 := (c.rtcClock / 86400) & 0x1FF
+	newDays9 := (c.RTCClock / 86400) & 0x1FF
 	if oldDays9 > newDays9 {
-		c.rtcRegs[4] |= 0x80 // set carry
+		c.RTCRegs[4] |= 0x80 // set carry
 	}
 
 	// Update registers from clock
-	c.rtcRegs[0] = byte(c.rtcClock % 60)       // S
-	c.rtcRegs[1] = byte((c.rtcClock / 60) % 60) // M
-	c.rtcRegs[2] = byte((c.rtcClock / 3600) % 24) // H
-	totalDays := c.rtcClock / 86400
-	c.rtcRegs[3] = byte(totalDays & 0xFF)          // DL
-	c.rtcRegs[4] = (c.rtcRegs[4] & 0xC0) | byte((totalDays>>8)&0x01) // DH
+	c.RTCRegs[0] = byte(c.RTCClock % 60)       // S
+	c.RTCRegs[1] = byte((c.RTCClock / 60) % 60) // M
+	c.RTCRegs[2] = byte((c.RTCClock / 3600) % 24) // H
+	totalDays := c.RTCClock / 86400
+	c.RTCRegs[3] = byte(totalDays & 0xFF)          // DL
+	c.RTCRegs[4] = (c.RTCRegs[4] & 0xC0) | byte((totalDays>>8)&0x01) // DH
 }
 
 func (c *mbc3Cartridge) GetState() MBCState {
-	return MBCState{
-		RamEnabled:   c.ramEnabled,
-		RomBankLow:   c.romBank,
-		RamBankReg:   c.ramBank,
-		HasRTC:       c.hasTimer,
-		RTCRegs:      c.rtcRegs,
-		RTCLatched:   c.rtcLatched,
-		RTCLatchStep: byte(c.latchStep),
-		RTCClock:     c.rtcClock,
-		MBCType:      3,
-	}
+	return *c.MBCState
 }
 
 func (c *mbc3Cartridge) SetState(s MBCState) {
-	c.ramEnabled = s.RamEnabled
-	c.romBank = s.RomBankLow & 0x7F
-	c.ramBank = s.RamBankReg
-	c.rtcRegs = s.RTCRegs
-	c.rtcLatched = s.RTCLatched
-	c.latchStep = int(s.RTCLatchStep)
-	c.rtcClock = s.RTCClock
+	*c.MBCState = s
 }
 
 func (c *mbc3Cartridge) GetTitle() string {
@@ -777,15 +733,15 @@ func (c *mbc3Cartridge) SaveRAM() []byte {
 		copy(dst[i*0x2000:(i+1)*0x2000], bank)
 	}
 	if c.hasTimer {
-		copy(dst[ramSize:], c.rtcRegs[:])               // 5 bytes
-		dst[ramSize+5] = byte(c.rtcClock)                // int64 little-endian
-		dst[ramSize+6] = byte(c.rtcClock >> 8)
-		dst[ramSize+7] = byte(c.rtcClock >> 16)
-		dst[ramSize+8] = byte(c.rtcClock >> 24)
-		dst[ramSize+9] = byte(c.rtcClock >> 32)
-		dst[ramSize+10] = byte(c.rtcClock >> 40)
-		dst[ramSize+11] = byte(c.rtcClock >> 48)
-		dst[ramSize+12] = byte(c.rtcClock >> 56)
+		copy(dst[ramSize:], c.RTCRegs[:])               // 5 bytes
+		dst[ramSize+5] = byte(c.RTCClock)                // int64 little-endian
+		dst[ramSize+6] = byte(c.RTCClock >> 8)
+		dst[ramSize+7] = byte(c.RTCClock >> 16)
+		dst[ramSize+8] = byte(c.RTCClock >> 24)
+		dst[ramSize+9] = byte(c.RTCClock >> 32)
+		dst[ramSize+10] = byte(c.RTCClock >> 40)
+		dst[ramSize+11] = byte(c.RTCClock >> 48)
+		dst[ramSize+12] = byte(c.RTCClock >> 56)
 	}
 	return dst
 }
@@ -807,8 +763,8 @@ func (c *mbc3Cartridge) LoadRAM(data []byte) {
 
 	// Load RTC state if present (13 bytes appended after RAM)
 	if c.hasTimer && len(data) >= ramSize+13 {
-		copy(c.rtcRegs[:], data[ramSize:ramSize+5])
-		c.rtcClock = int64(data[ramSize+5]) |
+		copy(c.RTCRegs[:], data[ramSize:ramSize+5])
+		c.RTCClock = int64(data[ramSize+5]) |
 			int64(data[ramSize+6])<<8 |
 			int64(data[ramSize+7])<<16 |
 			int64(data[ramSize+8])<<24 |
@@ -833,16 +789,13 @@ func (c *mbc3Cartridge) LoadRAM(data []byte) {
 // Supports up to 8MB ROM (512 banks) and/or 128KB RAM (16 banks).
 // Used by Pokémon R/B/Y, Pokémon G/S/C, and most late-DMG games.
 type mbc5Cartridge struct {
-	data        []byte   // Full ROM contents
-	ram         [][]byte // RAM banks (each 8KB)
-	ramEnabled  bool
-	romBankLow  byte // Lower 8 bits of ROM bank (write to 2000-2FFF)
-	romBankHigh byte // Bit 8 of ROM bank (write to 3000-3FFF, only bit 0 used)
-	ramBankReg  byte // RAM bank register (write to 4000-5FFF, lower 4 bits)
-	romBanks    int  // Number of 16KB ROM banks
-	ramBanks    int  // Number of 8KB RAM banks
-	hasBattery  bool
-	hasRumble   bool
+	*MBCState
+	data       []byte   // Full ROM contents
+	ram        [][]byte // RAM banks (each 8KB)
+	romBanks   int      // Number of 16KB ROM banks
+	ramBanks   int      // Number of 8KB RAM banks
+	hasBattery bool
+	hasRumble  bool
 }
 
 func newMBC5(romData []byte, cType CartridgeType) *mbc5Cartridge {
@@ -861,6 +814,7 @@ func newMBC5(romData []byte, cType CartridgeType) *mbc5Cartridge {
 	hasRumble := cType.HasRumble()
 
 	return &mbc5Cartridge{
+		MBCState: &MBCState{MBCType: 5},
 		data:       romData,
 		ram:        ram,
 		romBanks:   nBanks,
@@ -872,7 +826,7 @@ func newMBC5(romData []byte, cType CartridgeType) *mbc5Cartridge {
 
 // getROMBank returns the effective ROM bank number for the 0x4000-0x7FFF region.
 func (c *mbc5Cartridge) getROMBank() int {
-	bank := (int(c.romBankHigh&0x01) << 8) | int(c.romBankLow)
+	bank := (int(c.RomBankHi&0x01) << 8) | int(c.RomBankLow)
 	if bank == 0 {
 		bank = 1
 	}
@@ -884,10 +838,10 @@ func (c *mbc5Cartridge) getRAMBank() int {
 	var bank int
 	if c.hasRumble {
 		// Rumble carts: bits 0-2 select RAM bank, bit 3 controls rumble
-		bank = int(c.ramBankReg & 0x07)
+		bank = int(c.RamBankReg & 0x07)
 	} else {
 		// Non-rumble: lower 4 bits select RAM bank
-		bank = int(c.ramBankReg & 0x0F)
+		bank = int(c.RamBankReg & 0x0F)
 	}
 	if c.ramBanks <= 1 {
 		return 0
@@ -914,7 +868,7 @@ func (c *mbc5Cartridge) Read(addr uint16) byte {
 		return 0xFF
 
 	case addr >= 0xA000 && addr <= 0xBFFF:
-		if !c.ramEnabled || c.ramBanks == 0 {
+		if !c.RamEnabled || c.ramBanks == 0 {
 			return 0xFF // open bus
 		}
 		bank := c.getRAMBank()
@@ -933,22 +887,22 @@ func (c *mbc5Cartridge) Write(addr uint16, val byte) {
 	switch {
 	case addr <= 0x1FFF:
 		// RAM enable: writing 0x0A to low nibble enables
-		c.ramEnabled = (val & 0x0F) == 0x0A
+		c.RamEnabled = (val & 0x0F) == 0x0A
 
 	case addr >= 0x2000 && addr <= 0x2FFF:
 		// ROM bank lower 8 bits
-		c.romBankLow = val
+		c.RomBankLow = val
 
 	case addr >= 0x3000 && addr <= 0x3FFF:
 		// ROM bank bit 8 (bit 9 in the ROM bank number)
-		c.romBankHigh = val & 0x01
+		c.RomBankHi = val & 0x01
 
 	case addr >= 0x4000 && addr <= 0x5FFF:
 		// RAM bank select (and rumble control for rumble carts)
-		c.ramBankReg = val
+		c.RamBankReg = val
 
 	case addr >= 0xA000 && addr <= 0xBFFF:
-		if c.ramEnabled && c.ramBanks > 0 {
+		if c.RamEnabled && c.ramBanks > 0 {
 			bank := c.getRAMBank()
 			if bank < len(c.ram) {
 				c.ram[bank][addr-0xA000] = val
@@ -1009,20 +963,11 @@ func (c *mbc5Cartridge) LoadRAM(data []byte) {
 }
 
 func (c *mbc5Cartridge) GetState() MBCState {
-	return MBCState{
-		RamEnabled: c.ramEnabled,
-		RomBankLow: c.romBankLow,
-		RomBankHi:  c.romBankHigh,
-		RamBankReg: c.ramBankReg,
-		MBCType:    5,
-	}
+	return *c.MBCState
 }
 
 func (c *mbc5Cartridge) SetState(s MBCState) {
-	c.ramEnabled = s.RamEnabled
-	c.romBankLow = s.RomBankLow
-	c.romBankHigh = s.RomBankHi & 0x01
-	c.ramBankReg = s.RamBankReg
+	*c.MBCState = s
 }
 
 // No-op TickRTC: MBC5 has no RTC.

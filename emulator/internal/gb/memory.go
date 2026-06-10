@@ -535,6 +535,7 @@ func (m *MemoryBus) StepDevices(cycles int) {
 
 // romOnlyCartridge is a minimal cartridge that maps ROM at 0x0000-0x7FFF.
 type romOnlyCartridge struct {
+	*MBCState
 	data []byte
 }
 
@@ -582,10 +583,12 @@ func (c *romOnlyCartridge) LoadRAM(data []byte) {
 }
 
 func (c *romOnlyCartridge) GetState() MBCState {
-	return MBCState{RamEnabled: true, MBCType: 0}
+	return *c.MBCState
 }
 
-func (c *romOnlyCartridge) SetState(s MBCState) {}
+func (c *romOnlyCartridge) SetState(s MBCState) {
+	*c.MBCState = s
+}
 
 func (c *romOnlyCartridge) TickRTC(seconds int64) {
 	// ROM-only cartridge has no RTC

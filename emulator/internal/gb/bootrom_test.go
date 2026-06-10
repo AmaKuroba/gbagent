@@ -41,7 +41,7 @@ func TestBootROM_AfterDisableReadsCartridgeROM(t *testing.T) {
 	for i := range cartData {
 		cartData[i] = byte(0xA0 + i)
 	}
-	mmu := NewMMU(&romOnlyCartridge{data: cartData})
+	mmu := NewMMU(&romOnlyCartridge{MBCState: &MBCState{}, data: cartData})
 	mmu.LoadBootROM(DMGBootROMData[:])
 	assert.Equal(t, DMGBootROMData[0], mmu.Read(0x0000))
 	mmu.Write(0xFF50, 0x01)
@@ -53,7 +53,7 @@ func TestBootROM_OnlyCoversFirst256Bytes(t *testing.T) {
 	for i := range cartData {
 		cartData[i] = byte(i & 0xFF)
 	}
-	mmu := NewMMU(&romOnlyCartridge{data: cartData})
+	mmu := NewMMU(&romOnlyCartridge{MBCState: &MBCState{}, data: cartData})
 	mmu.LoadBootROM(DMGBootROMData[:])
 	assert.Equal(t, DMGBootROMData[0], mmu.Read(0x0000))
 	assert.Equal(t, byte(0x00), mmu.Read(0x0100))
