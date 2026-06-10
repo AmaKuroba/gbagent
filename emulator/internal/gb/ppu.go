@@ -8,13 +8,42 @@ type PPU interface {
 	GetState() PPUState
 }
 
-// PPUState is a snapshot of PPU registers and timing.
+// PPUState is a snapshot of PPU registers and timing (basic).
 type PPUState struct {
 	Mode       int
 	LY         byte
 	LCDC       byte
 	STAT       byte
 	FrameCount int
+}
+
+// PPUFullState captures all PPU internal state for save-state serialisation.
+type PPUFullState struct {
+	Mode       int
+	LY         byte
+	LYC        byte
+	STAT       byte
+	LCDC       byte
+	FrameCount int
+
+	DotCounter int
+	SCY        byte
+	SCX        byte
+	BGP        byte
+	OBP0       byte
+	OBP1       byte
+	WX         byte
+	WY         byte
+
+	IsRunning          bool
+	ScanlineRendered   bool
+	Mode2End           int
+	Mode3End           int
+	OAMScanned         bool
+	FirstFrameBlank    bool
+
+	// Framebuffer
+	Screen [160][144]byte
 }
 
 // PPU timing constants.
@@ -528,6 +557,59 @@ func (p *PPUCore) SetState(s PPUState) {
 	p.stat = s.STAT
 	p.frameCtr = s.FrameCount
 	p.updateMode()
+}
+
+// GetFullState returns all PPU internal state for save-state serialisation.
+func (p *PPUCore) GetFullState() PPUFullState {
+	return PPUFullState{
+		Mode:       p.GetMode(),
+		LY:         p.ly,
+		LYC:        p.lyc,
+		STAT:       p.stat,
+		LCDC:       p.lcdc,
+		FrameCount: p.frameCtr,
+		DotCounter: p.dotCounter,
+		SCY:        p.scy,
+		SCX:        p.scx,
+		BGP:        p.bgp,
+		OBP0:       p.obp0,
+		OBP1:       p.obp1,
+		WX:         p.wx,
+		WY:         p.wy,
+		IsRunning:        p.isRunning,
+		ScanlineRendered: p.scanlineRendered,
+		Mode2End:         p.mode2End,
+		Mode3End:         p.mode3End,
+		OAMScanned:       p.oamScanned,
+		FirstFrameBlank:  p.firstFrameBlank,
+		Screen:           p.screen,
+	}
+}
+
+// SetFullState restores all PPU internal state from a PPUFullState.
+func (p *PPUCore) SetFullState(s PPUFullState) {
+	p.ly = s.LY
+	p.lyc = s.LYC
+	p.stat = s.STAT
+	p.lcdc = s.LCDC
+	p.frameCtr = s.FrameCount
+	p.dotCounter = s.DotCounter
+	p.scy = s.SCY
+	p.scx = s.SCX
+	p.bgp = s.BGP
+	p.obp0 = s.OBP0
+	p.obp1 = s.OBP1
+	p.wx = s.WX
+	p.wy = s.WY
+	p.isRunning = s.IsRunning
+	p.scanlineRendered = s.ScanlineRendered
+	p.mode2End = s.Mode2End
+	p.mode3End = s.Mode3End
+	p.oamScanned = s.OAMScanned
+	p.firstFrameBlank = s.FirstFrameBlank
+	p.screen = s.Screen
+	p.oamSprites = nil // cleared — re-scanned on next OAM search
+	p.stat = (p.stat & 0xFC) | byte(s.Mode)
 }
 
 func (p *PPUCore) GetScreen() [160][144]byte {

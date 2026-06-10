@@ -53,7 +53,7 @@ type DMAState struct {
 // It captures everything needed to perfectly restore emulation.
 type FullState struct {
 	CPU        CPUState
-	PPU        PPUState
+	PPU        PPUFullState
 	Timer      TimerFullState
 	APU        APUFullState
 

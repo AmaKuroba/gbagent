@@ -543,7 +543,7 @@ func (m *MemoryBus) DumpFullState() FullState {
 		SC:           m.sc,
 
 		CPU:  m.cpuRef.GetState(),
-		PPU:  m.ppu.GetState(),
+		PPU:  m.ppu.GetFullState(),
 		Timer: m.timer.GetFullState(),
 		APU:  m.apu.GetFullState(),
 
@@ -573,7 +573,7 @@ func (m *MemoryBus) LoadFullState(s FullState) {
 	m.sc = s.SC
 
 	m.cpuRef.SetState(s.CPU)
-	m.ppu.SetState(s.PPU)
+	m.ppu.SetFullState(s.PPU)
 	m.timer.SetFullState(s.Timer)
 	m.apu.SetFullState(s.APU)
 
