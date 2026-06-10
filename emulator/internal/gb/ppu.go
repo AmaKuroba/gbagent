@@ -417,6 +417,9 @@ func (p *PPUCore) scanOAM() {
 // renderSprites composites selected sprites onto the current scanline.
 // Called during mode 3 (VRAM draw) after background & window rendering.
 func (p *PPUCore) renderSprites() {
+	if p.mmu == nil {
+		return
+	}
 	spriteHeight := 8
 	if p.lcdc&lcdcBitOBJSize != 0 {
 		spriteHeight = 16
