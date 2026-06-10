@@ -7,7 +7,6 @@ retro-driver/.pytest_cache/
 retro-driver/.ruff_cache/
 retro-driver/*.egg-info/
 retro-driver/__pycache__/
-retro-driver/configs/
 retro-driver/logs/
 retro-driver/models/
 retro-driver/roms/
