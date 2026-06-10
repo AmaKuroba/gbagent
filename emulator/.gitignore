@@ -1,0 +1,30 @@
+# Binaries
+/gbagent
+/gb.test
+*.exe
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test binaries
+internal/**/*.test
+cmd/**/*.test
+dashboard/**/*.test
+mcp/**/*.test
+
+# Test ROMs (downloaded by just testdata)
+testdata/
+*.zip
+
+# Archive
+internal/_archive_gb/
+TODO.md

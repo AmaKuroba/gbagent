@@ -1,26 +1,23 @@
-# Binaries
-/gbagent
-/gb.test
-*.exe
-*.test
-*.out
+# Build artifacts
+bin/
+
+# Python driver
+retro-driver/.venv/
+retro-driver/.pytest_cache/
+retro-driver/.ruff_cache/
+retro-driver/*.egg-info/
+retro-driver/__pycache__/
+retro-driver/configs/
+retro-driver/logs/
+retro-driver/models/
+retro-driver/roms/
+
+# OS
+.DS_Store
+Thumbs.db
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Test binaries
-internal/**/*.test
-cmd/**/*.test
-dashboard/**/*.test
-mcp/**/*.test
-
-# Archive
-internal/_archive_gb/
-TODO.md

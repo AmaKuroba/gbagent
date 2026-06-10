@@ -1,0 +1,55 @@
+version: "2"
+run:
+  timeout: 3m
+
+issues:
+  max-same-issues: 0
+
+linters:
+  default: standard
+  enable:
+    - bodyclose        # ensure HTTP response bodies are closed
+    - errorlint        # check error wrapping (Go 1.13+ style)
+    - goconst          # find repeated constants
+    - gocritic         # performance + correctness + style
+    - gocyclo          # cyclomatic complexity guard
+    - intrange         # prefer for i := range N over for i := 0; i < N; i++
+    - nilerr           # catch returning nil when error was checked
+    - noctx            # detect HTTP requests missing context
+    - prealloc         # suggest slice preallocation
+    - unconvert        # remove unnecessary type conversions
+  disable:
+    - depguard         # not relevant
+    - exhaustruct      # too noisy
+    - lll              # line length not a style concern
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      - (*os.File).Close
+      - (net.Conn).Close
+      - (io.ReadCloser).Close
+      - (github.com/gorilla/websocket.Conn).Close
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+      - style
+    disabled-checks:
+      - ifElseChain
+      - unnamedResult
+      - paramTypeCombine
+
+  staticcheck:
+    checks:
+      - all
+      - -SA1019  # allow deprecated identifiers
+      - -SA2002  # allow testing clock in timer
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+  gocyclo:
+    min-complexity: 15
