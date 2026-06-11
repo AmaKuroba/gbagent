@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rust-gbagent</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#1a1a2e; color:#eaeaea; font-family:'Courier New',monospace; display:flex; flex-direction:column; height:100vh; }
+  .header { display:flex; align-items:center; gap:1rem; padding:0.5rem 1.5rem; border-bottom:1px solid #0f3460; flex-shrink:0; }
+  .header h1 { font-size:1.1rem; letter-spacing:0.1em; }
+  .header .subtitle { color:#8892b0; font-size:0.75rem; }
+  .header .status { margin-left:auto; display:flex; align-items:center; gap:0.5rem; font-size:0.75rem; }
+  .status-dot { width:8px; height:8px; border-radius:50%; }
+  .status-dot.connected { background:#53d769; }
+  .status-dot.disconnected { background:#e94560; }
+  .layout { display:flex; flex:1; min-height:0; padding:0.75rem; gap:0.75rem; }
+  .center { flex:1; display:flex; min-width:0; min-height:0; }
+  .screen-wrapper { flex:1; background:#16213e; border:2px solid #0f3460; border-radius:12px; box-shadow:0 0 30px rgba(233,69,96,0.15); display:flex; }
+  #gb-screen { width:100%; height:100%; object-fit:contain; image-rendering:pixelated; background:#000; border-radius:4px; display:block; overflow:hidden; }
+  .panel-right { width:240px; flex-shrink:0; background:#16213e; border:1px solid #0f3460; border-radius:10px; display:flex; flex-direction:column; overflow:hidden; }
+  .panel-header { padding:0.6rem 0.75rem; border-bottom:1px solid #0f3460; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.08em; color:#e94560; flex-shrink:0; }
+  .joypad { display:grid; grid-template-columns:repeat(3,1fr); gap:2px; padding:0.4rem; flex-shrink:0; }
+  .joypad .key { background:#0f3460; border-radius:4px; text-align:center; padding:6px 0; font-size:0.65rem; color:#8892b0; user-select:none; }
+  .joypad .key.active { background:#e94560; color:white; }
+  .joypad .key.empty { visibility:hidden; }
+  #train-btn { width:100%; padding:0.4rem; border:none; border-radius:4px; cursor:pointer; font:inherit; font-weight:bold; flex-shrink:0; }
+  #train-btn.idle { background:#3a3; color:#fff; }
+  #train-btn.training { background:#e33; color:#fff; animation:pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+  .connection-status { padding:8px; font-size:0.65rem; flex-shrink:0; }
+  .connection-status div { padding:3px 0; }
+  .status-connected { color:#53d769; }
+  .status-waiting { color:#8892b0; }
+  .stats { display:flex; gap:0.5rem; font-size:0.65rem; color:#8892b0; padding:0 6px 4px; flex-shrink:0; }
+  .stats span strong { color:#eaeaea; }
+  .chart-container { flex-shrink:0; padding:4px; }
+  .chart-container canvas { width:100%; display:block; }
+  .log-panel { flex:1; display:flex; flex-direction:column; border-top:1px solid #0f3460; min-height:0; }
+  .log-header { padding:0.4rem 0.75rem; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.08em; color:#8892b0; flex-shrink:0; }
+  .log-scroll { flex:1; overflow-y:auto; padding:0.3rem 0.5rem; font-size:0.65rem; color:#8892b0; background:rgba(0,0,0,0.2); }
+  .log-scroll p { margin:0.1rem 0; line-height:1.3; }
+  .log-scroll p.error { color:#e94560; }
+  #record-btn { width:100%; padding:0.3rem; border:none; border-radius:4px; cursor:pointer; font:inherit; font-size:0.7rem; font-weight:bold; flex-shrink:0; }
+  #record-btn.off { background:#555; color:#aaa; }
+  #record-btn.on { background:#e33; color:#fff; animation:pulse 1s infinite; }
+  .state-btns { display:flex; gap:4px; padding:4px; flex-shrink:0; }
+  .state-btn { flex:1; padding:4px; border:none; border-radius:4px; cursor:pointer; font:inherit; font-size:0.65rem; font-weight:bold; }
+  .state-btn.save { background:#2196f3; color:#fff; }
+  .state-btn.load { background:#ff9800; color:#fff; }
+  .state-btn:active { opacity:0.7; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>rust-gbagent</h1>
+  <span class="subtitle">Dashboard</span>
+  <div class="status">
+    <span class="status-dot disconnected" id="status-dot"></span>
+    <span id="status-text">Disconnected</span>
+  </div>
+</div>
+<div class="layout">
+  <div class="center">
+    <div class="screen-wrapper">
+      <canvas id="gb-screen" width="160" height="144"></canvas>
+    </div>
+  </div>
+  <div class="panel-right">
+    <div class="chart-container">
+      <canvas id="reward-chart" width="200" height="28" style="height:28px;"></canvas>
+    </div>
+    <div class="chart-container">
+      <canvas id="loss-chart" width="200" height="20" style="height:20px;"></canvas>
+    </div>
+    <div class="chart-container">
+      <canvas id="epsilon-chart" width="200" height="20" style="height:20px;"></canvas>
+    </div>
+    <div class="stats">
+      <span>loss <strong id="loss-val">—</strong></span>
+      <span>&epsilon; <strong id="eps-val">—</strong></span>
+      <span style="margin-left:auto;">sps <strong id="sps-val">—</strong></span>
+    </div>
+    <button id="train-btn" class="idle" onclick="toggleTrain()">START TRAINING</button>
+    <div class="state-btns">
+      <button class="state-btn save" onclick="saveState()">SAVE</button>
+      <button class="state-btn load" onclick="loadState()">LOAD</button>
+    </div>
+    <div class="connection-status">
+      <div id="ws-status" class="status-waiting">Dashboard: Waiting...</div>
+      <div id="gamepad-status" class="status-waiting">Gamepad: None</div>
+    </div>
+    <button id="record-btn" class="off" onclick="toggleRecord()">REC</button>
+    <div class="joypad">
+      <div class="key empty"></div>
+      <div class="key" data-gb="UP">&uarr;</div>
+      <div class="key empty"></div>
+      <div class="key" data-gb="LEFT">&larr;</div>
+      <div class="key" data-gb="DOWN">&darr;</div>
+      <div class="key" data-gb="RIGHT">&rarr;</div>
+      <div class="key" data-gb="SELECT">SEL</div>
+      <div class="key" data-gb="START">STR</div>
+      <div class="key empty"></div>
+      <div class="key" data-gb="A">A</div>
+      <div class="key empty"></div>
+      <div class="key" data-gb="B">B</div>
+    </div>
+    <div class="log-panel">
+      <div class="log-header">Log</div>
+      <div class="log-scroll" id="log"></div>
+    </div>
+  </div>
+</div>
+<script>
+const canvas=document.getElementById('gb-screen');
+const ctx=canvas.getContext('2d');
+const logEl=document.getElementById('log');
+let ws=null, connected=false, isTraining=false, isRecording=false;
+const KEY_MAP={'w':'UP','a':'LEFT','s':'DOWN','d':'RIGHT','k':'A','j':'B','h':'START','g':'SELECT'};
+
+function log(msg,cls){
+  const p=document.createElement('p');
+  if(cls)p.className=cls;
+  p.textContent='> '+msg;
+  logEl.appendChild(p);
+  logEl.scrollTop=logEl.scrollHeight;
+  while(logEl.children.length>100)logEl.removeChild(logEl.firstChild);
+}
+
+function connect(){
+  if(ws)ws.close();
+  const proto=location.protocol==='https:'?'wss:':'ws:';
+  ws=new WebSocket(proto+'//'+location.hostname+':8766');
+  ws.binaryType='arraybuffer';
+  ws.onopen=()=>{
+    connected=true;
+    document.getElementById('status-dot').className='status-dot connected';
+    document.getElementById('status-text').textContent='Connected';
+    document.getElementById('ws-status').textContent='Dashboard: Connected';
+    document.getElementById('ws-status').className='status-connected';
+    log('WebSocket connected');
+  };
+  ws.onclose=()=>{
+    connected=false;
+    document.getElementById('status-dot').className='status-dot disconnected';
+    document.getElementById('status-text').textContent='Disconnected';
+    document.getElementById('ws-status').textContent='Dashboard: Waiting...';
+    document.getElementById('ws-status').className='status-waiting';
+    log('WebSocket disconnected', 'error');
+    setTimeout(connect,2000);
+  };
+  ws.onerror=()=>log('WebSocket error','error');
+  ws.onmessage=(e)=>{
+    if(e.data instanceof ArrayBuffer){
+      const dv=new DataView(e.data);
+      if(dv.getUint8(0)===0x00){
+        const blob=new Blob([e.data.slice(1)],{type:'image/png'});
+        const url=URL.createObjectURL(blob);
+        const img=new Image();
+        img.onload=()=>{ctx.imageSmoothingEnabled=false;ctx.drawImage(img,0,0,160,144);URL.revokeObjectURL(url);};
+        img.onerror=()=>URL.revokeObjectURL(url);
+        img.src=url;
+      }
+    }else{
+      try{
+        const d=JSON.parse(e.data);
+        if(d.reward_total!==undefined){
+          addRewardPoint(d.reward_total);
+          addLossPoint(d.loss||0,d.epsilon||0,d.sps);
+        }
+      }catch(_){}
+    }
+  };
+}
+
+// --- Charts ---
+const rewardPoints=[], lossPoints=[], epsilonPoints=[];
+
+function addRewardPoint(total){
+  const t=Date.now();
+  rewardPoints.push({time:t,total});
+  while(rewardPoints.length&&rewardPoints[0].time<t-300000)rewardPoints.shift();
+  drawRewardChart();
+}
+function addLossPoint(loss,epsilon,sps){
+  document.getElementById('loss-val').textContent=loss.toFixed(4);
+  document.getElementById('eps-val').textContent=epsilon.toFixed(3);
+  document.getElementById('sps-val').textContent=sps!=null?Math.round(sps).toString():'—';
+  const t=Date.now();
+  lossPoints.push({time:t,loss});
+  epsilonPoints.push({time:t,epsilon});
+  while(lossPoints.length&&lossPoints[0].time<t-300000)lossPoints.shift();
+  while(epsilonPoints.length&&epsilonPoints[0].time<t-300000)epsilonPoints.shift();
+  drawLossChart();
+  drawEpsilonChart();
+}
+function drawRewardChart(){
+  const c=document.getElementById('reward-chart');if(!c)return;
+  const cx=c.getContext('2d');const w=c.width,h=c.height;
+  cx.clearRect(0,0,w,h);
+  if(rewardPoints.length<2){cx.fillStyle='#666';cx.font='10px monospace';cx.fillText('reward: waiting...',4,12);return;}
+  const vals=rewardPoints.map(r=>r.total);
+  const min=Math.min(...vals),max=Math.max(...vals),range=max-min||1;
+  cx.beginPath();
+  vals.forEach((v,i)=>{const x=(i/(vals.length-1))*w,y=h-((v-min)/range)*(h-4)-2;i===0?cx.moveTo(x,y):cx.lineTo(x,y);});
+  cx.strokeStyle='#4caf50';cx.lineWidth=2;cx.stroke();
+  cx.fillStyle='#aaa';cx.font='10px monospace';cx.fillText(vals[vals.length-1].toFixed(2),4,10);
+}
+function drawLossChart(){
+  const c=document.getElementById('loss-chart');if(!c)return;
+  const cx=c.getContext('2d');const w=c.width,h=c.height;
+  cx.clearRect(0,0,w,h);
+  if(lossPoints.length<2){cx.fillStyle='#666';cx.font='9px monospace';cx.fillText('loss: waiting...',4,12);return;}
+  const vals=lossPoints.map(r=>r.loss),max=Math.max(...vals,0.01);
+  cx.beginPath();
+  vals.forEach((v,i)=>{const x=(i/(vals.length-1))*w,y=h-(Math.min(v,max)/max)*(h-4)-2;i===0?cx.moveTo(x,y):cx.lineTo(x,y);});
+  cx.strokeStyle='#ff9800';cx.lineWidth=1.5;cx.stroke();
+  cx.fillStyle='#aaa';cx.font='9px monospace';cx.fillText(vals[vals.length-1].toFixed(4),4,10);
+}
+function drawEpsilonChart(){
+  const c=document.getElementById('epsilon-chart');if(!c)return;
+  const cx=c.getContext('2d');const w=c.width,h=c.height;
+  cx.clearRect(0,0,w,h);
+  if(epsilonPoints.length<2){cx.fillStyle='#666';cx.font='9px monospace';cx.fillText('epsilon: waiting...',4,12);return;}
+  const vals=epsilonPoints.map(r=>r.epsilon),max=Math.max(...vals,0.01);
+  cx.beginPath();
+  vals.forEach((v,i)=>{const x=(i/(vals.length-1))*w,y=h-(Math.min(v,max)/max)*(h-4)-2;i===0?cx.moveTo(x,y):cx.lineTo(x,y);});
+  cx.strokeStyle='#9c27b0';cx.lineWidth=1.5;cx.stroke();
+  cx.fillStyle='#aaa';cx.font='9px monospace';cx.fillText(vals[vals.length-1].toFixed(3),4,10);
+}
+
+// --- Keyboard ---
+document.addEventListener('keydown',(e)=>{
+  if(e.repeat)return;
+  const k=KEY_MAP[e.key];if(!k)return;
+  e.preventDefault();
+  document.querySelector(`[data-gb="${k}"]`)?.classList.add('active');
+  if(connected)ws.send(JSON.stringify({key:e.key,pressed:true}));
+});
+document.addEventListener('keyup',(e)=>{
+  const k=KEY_MAP[e.key];if(!k)return;
+  e.preventDefault();
+  document.querySelector(`[data-gb="${k}"]`)?.classList.remove('active');
+  if(connected)ws.send(JSON.stringify({key:e.key,pressed:false}));
+});
+
+// --- Touch ---
+document.querySelectorAll('[data-gb]').forEach(el=>{
+  const gbBtn=el.dataset.gb;
+  const keyName={'UP':'w','DOWN':'s','LEFT':'a','RIGHT':'d','A':'k','B':'j','START':'h','SELECT':'g'}[gbBtn]||gbBtn;
+  el.addEventListener('pointerdown',(e)=>{e.preventDefault();el.classList.add('active');if(connected)ws.send(JSON.stringify({key:keyName,pressed:true}));});
+  el.addEventListener('pointerup',(e)=>{e.preventDefault();el.classList.remove('active');if(connected)ws.send(JSON.stringify({key:keyName,pressed:false}));});
+  el.addEventListener('pointerleave',(e)=>{e.preventDefault();el.classList.remove('active');if(connected)ws.send(JSON.stringify({key:keyName,pressed:false}));});
+});
+
+// --- Training ---
+function toggleTrain(){
+  const btn=document.getElementById('train-btn');
+  if(isTraining){
+    fetch('/train/stop',{method:'POST'}).then(r=>{if(r.ok){isTraining=false;btn.className='idle';btn.textContent='START TRAINING';log('Training stopped');}}).catch(e=>log('Train stop: '+e,'error'));
+  }else{
+    fetch('/train/start',{method:'POST'}).then(r=>{if(r.ok){isTraining=true;btn.className='training';btn.textContent='STOP TRAINING';log('Training started');}}).catch(e=>log('Train start: '+e,'error'));
+  }
+}
+
+// --- Recording ---
+function toggleRecord(){
+  if(isRecording){
+    fetch('/record/stop',{method:'POST'}).then(r=>r.json()).then(d=>{isRecording=false;document.getElementById('record-btn').className='off';document.getElementById('record-btn').textContent='REC';log('Recording stopped: '+d.frame_count+' frames');}).catch(e=>log('Record stop: '+e,'error'));
+  }else{
+    fetch('/record/start',{method:'POST'}).then(r=>r.json()).then(d=>{isRecording=true;document.getElementById('record-btn').className='on';document.getElementById('record-btn').textContent='STOP';log('Recording started');}).catch(e=>log('Record start: '+e,'error'));
+  }
+}
+
+// --- Save/Load ---
+let statePath='checkpoints/current.sav';
+function saveState(){
+  const path=prompt('Save state path:',statePath);
+  if(!path)return;statePath=path;
+  fetch('/state/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})}).then(()=>log('State saved: '+path)).catch(e=>log('Save failed: '+e,'error'));
+}
+function loadState(){
+  const path=prompt('Load state path:',statePath);
+  if(!path)return;statePath=path;
+  fetch('/state/load',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})}).then(()=>log('State loaded: '+path)).catch(e=>log('Load failed: '+e,'error'));
+}
+
+// --- Gamepad ---
+let gamepadIndex=null;
+const GAMEPAD_MAP={0:'k',1:'j',8:'g',9:'h',12:'w',13:'s',14:'a',15:'d'};
+const AXIS_DEADZONE=0.5;
+let prevGamepadState={};
+
+window.addEventListener('gamepadconnected',(e)=>{
+  if(gamepadIndex===null){gamepadIndex=e.gamepad.index;document.getElementById('gamepad-status').textContent='Gamepad: Connected';document.getElementById('gamepad-status').className='status-connected';log('Gamepad: '+e.gamepad.id);}
+});
+window.addEventListener('gamepaddisconnected',(e)=>{
+  if(e.gamepad.index===gamepadIndex){gamepadIndex=null;prevGamepadState={};document.getElementById('gamepad-status').textContent='Gamepad: None';document.getElementById('gamepad-status').className='status-waiting';}
+});
+
+function pollGamepads(){
+  if(gamepadIndex!==null){
+    const gp=navigator.getGamepads()[gamepadIndex];
+    if(gp){
+      for(const[idx,key]of Object.entries(GAMEPAD_MAP)){
+        if(!key)continue;
+        const i=parseInt(idx),pressed=gp.buttons[i]?.pressed||false,wasPressed=prevGamepadState[`b${i}`]||false;
+        if(pressed&&!wasPressed&&connected)ws.send(JSON.stringify({key,pressed:true}));
+        else if(!pressed&&wasPressed&&connected)ws.send(JSON.stringify({key,pressed:false}));
+        prevGamepadState[`b${i}`]=pressed;
+      }
+      const ax=gp.axes[0]||0,ay=gp.axes[1]||0;
+      const stickKeys={right:{k:'d',a:ax>AXIS_DEADZONE},left:{k:'a',a:ax<-AXIS_DEADZONE},up:{k:'w',a:ay<-AXIS_DEADZONE},down:{k:'s',a:ay>AXIS_DEADZONE}};
+      for(const[dir,ks]of Object.entries(stickKeys)){
+        const active=ks.a,wasActive=prevGamepadState[`s${dir}`]||false;
+        if(active&&!wasActive&&connected)ws.send(JSON.stringify({key:ks.k,pressed:true}));
+        else if(!active&&wasActive&&connected)ws.send(JSON.stringify({key:ks.k,pressed:false}));
+        prevGamepadState[`s${dir}`]=active;
+      }
+    }
+  }
+  requestAnimationFrame(pollGamepads);
+}
+
+log('Dashboard loaded');
+connect();
+requestAnimationFrame(pollGamepads);
+</script>
+</body>
+</html>
