@@ -217,3 +217,119 @@ class GBWSClient:
             b64 = raw.get("image", raw.get("data", ""))
             return Image.open(io.BytesIO(base64.b64decode(b64))).convert("L")
         raise GBAError(f"unexpected image response type: {type(raw)}")
+
+
+class ViewerClient:
+    """WebSocket client for the dashboard viewer's /metrics endpoint.
+
+    Sends training metrics and queries takeover state.
+    """
+
+    def __init__(self, url: str = "ws://localhost:8766/metrics", timeout: float = 5.0) -> None:
+        self._url = url
+        self._timeout = timeout
+        self._ws: WebSocketApp | None = None
+        self._responses: dict[int, dict[str, Any]] = {}
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._connected = threading.Event()
+        self._req_id = 0
+
+    def start(self) -> None:
+        if self._ws is not None:
+            return
+        self._stop_event.clear()
+        self._responses.clear()
+        self._req_id = 0
+
+        self._ws = WebSocketApp(
+            self._url,
+            on_open=lambda _: self._connected.set(),
+            on_message=self._on_message,
+            on_error=lambda _, e: self._stop_event.set(),
+            on_close=lambda _, __, ___: self._stop_event.set(),
+        )
+        t = threading.Thread(target=self._ws.run_forever, daemon=True)
+        t.start()
+        if not self._connected.wait(timeout=5):
+            raise ConnectionError(f"Failed to connect to viewer at {self._url}")
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._ws:
+            self._ws.close()
+            self._ws = None
+
+    def __enter__(self) -> ViewerClient:
+        self.start()
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.stop()
+
+    def _on_message(self, _ws: Any, message: str) -> None:
+        try:
+            msg = json.loads(message)
+        except json.JSONDecodeError:
+            return
+        if not isinstance(msg, dict):
+            return
+        req_id = msg.get("id")
+        if req_id is not None:
+            with self._lock:
+                if req_id in self._responses:
+                    self._responses[req_id] = msg
+
+    def _call(self, method: str, params: dict[str, Any] | None = None) -> Any:
+        if not self._ws:
+            raise RuntimeError("ViewerClient not started")
+        self._req_id += 1
+        req_id = self._req_id
+        request: dict[str, Any] = {"jsonrpc": "2.0", "id": req_id, "method": method}
+        if params:
+            request["params"] = params
+
+        with self._lock:
+            self._responses[req_id] = None  # type: ignore[assignment]
+            self._ws.send(json.dumps(request))
+
+        deadline = time.monotonic() + self._timeout
+        while time.monotonic() < deadline:
+            if self._stop_event.is_set():
+                raise ConnectionError(f"Viewer disconnected while waiting for {method}")
+            with self._lock:
+                entry = self._responses.get(req_id)
+                if entry is not None:
+                    del self._responses[req_id]
+                    if "error" in entry:
+                        raise GBAError(entry["error"].get("message", str(entry["error"])))
+                    return entry.get("result")
+            time.sleep(0.001)
+        raise TimeoutError(f"Viewer call {method} timed out")
+
+    def report_reward(
+        self,
+        total: float,
+        loss: float = 0.0,
+        epsilon: float = 0.0,
+        sps: float = 0.0,
+        breakdown: dict[str, float] | None = None,
+    ) -> None:
+        self._call("report_reward", {
+            "total": total,
+            "loss": loss,
+            "epsilon": epsilon,
+            "sps": sps,
+            "breakdown": breakdown or {},
+        })
+
+    def get_takeover(self) -> bool:
+        result = self._call("get_takeover")
+        return bool(result)
+
+    def set_takeover(self, *, value: bool) -> None:
+        self._call("set_takeover", {"value": value})
+
+    def get_last_action(self) -> dict[str, Any]:
+        result = self._call("get_last_action")
+        return result if isinstance(result, dict) else {"dpad": 0, "btn": 0}

@@ -37,7 +37,7 @@ func NewJoypad(mmu MMU) *Joypad {
 }
 
 // SetButtons stores the current active-high button state.
-// Called once per frame from the main loop with the dashboard's joypad state.
+// Called once per frame from the main loop.
 func (j *Joypad) SetButtons(buttons byte) {
 	j.buttons = buttons
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/binary"
 	"flag"
 	"fmt"
 	"image"
@@ -14,7 +13,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/AmaKuroba/gbagent/dashboard"
 	"github.com/AmaKuroba/gbagent/internal/gb"
 )
 
@@ -65,8 +63,7 @@ func loadRAM(romPath string, cart gb.Cartridge) {
 	log.Printf("loaded battery-backed RAM from %s (%d bytes)", path, len(data))
 }
 
-// createBridgeWithHub is like createBridge but also attaches a dashboard hub.
-func createBridgeWithHub(romPath string, hub *dashboard.Hub) *mcpBridge {
+func createBridge(romPath string) *mcpBridge {
 	romData, err := os.ReadFile(romPath)
 	if err != nil {
 		log.Fatalf("failed to read ROM: %v", err)
@@ -92,19 +89,12 @@ func createBridgeWithHub(romPath string, hub *dashboard.Hub) *mcpBridge {
 	mmu.LoadBootROM(gb.DMGBootROMData[:])
 	cpu.PC = 0x0000
 
-	return newBridge(mmu, cpu, ppu, timer, apu, cart, romPath, hub, nil)
+	return newBridge(mmu, cpu, ppu, timer, apu, cart, romPath)
 }
 
-func runServe(romPath string, port int, jsonrpcPort int, loadState string) {
-	hub := dashboard.NewHub()
-	go hub.Run()
+func runServe(romPath string, jsonrpcPort int, loadState string) {
+	bridge := createBridge(romPath)
 
-	bridge := createBridgeWithHub(romPath, hub)
-
-	// Optionally load a pre-saved state after boot.
-	// The state is created manually (play through intro, save_state),
-	// then passed via --load-state so the emulator starts at that point.
-	// Much faster than re-skipping the intro every time.
 	if loadState != "" {
 		if err := loadSavedState(bridge, loadState); err != nil {
 			log.Fatalf("--load-state: %v", err)
@@ -114,33 +104,14 @@ func runServe(romPath string, port int, jsonrpcPort int, loadState string) {
 
 	bridge.startProcessor()
 
-	srv := dashboard.NewServer(hub, fmt.Sprintf(":%d", port))
-	srv.TakeoverFunc = bridge.SetTakeover
-	srv.SaveStateFunc = bridge.SaveState
-	srv.LoadStateFunc = bridge.LoadState
-	go func() {
-		log.Printf("gbagent dashboard: http://localhost:%d", port)
-		if err := srv.ListenAndServe(); err != nil {
-			log.Fatalf("server error: %v", err)
-		}
-	}()
-
-	// Wire dashboard joypad into the bridge (frame loop reads it every tick).
-	bridge.joypadState = func() byte { return srv.Joypad().State() }
-
-	// Optional JSON-RPC WebSocket server (used by training agents).
 	if jsonrpcPort > 0 {
 		go runJSONRPCWebSocket(bridge, jsonrpcPort, loadState)
 	}
 
-	// If load-state is set, re-broadcast the loaded screen once
-	// the frame loop has it in the snapshot.
 	if loadState != "" {
-		// Let the frame loop tick once so the snapshot catches up.
 		time.Sleep(time.Second / 60)
 	}
 
-	// Emulation loop at ~60fps — never blocks, never calls processPending.
 	frameTicker := time.NewTicker(time.Second / 60)
 	defer frameTicker.Stop()
 
@@ -163,28 +134,13 @@ func runServe(romPath string, port int, jsonrpcPort int, loadState string) {
 			if frameCount%60 == 0 {
 				bridge.cart.TickRTC(1)
 			}
-
-			screen, _, _, _, _ := bridge.snap.read()
-			if pngData := encodeFrame(screen); pngData != nil {
-				hub.BroadcastBinary(append([]byte{0x00}, pngData...))
-			}
-
-			// Broadcast accumulated audio samples as a binary message.
-			if audioBuf := bridge.apu.GetAudioBuffer(); len(audioBuf) > 0 {
-				b := make([]byte, 2+len(audioBuf)*2)
-				binary.LittleEndian.PutUint16(b[:2], uint16(len(audioBuf)/2))
-				for i, s := range audioBuf {
-					binary.LittleEndian.PutUint16(b[2+i*2:], uint16(s))
-				}
-				hub.BroadcastBinary(append([]byte{0x01}, b...))
-			}
 		}
 	}
 }
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: gbagent <command> [flags]\n\nCommands:\n  serve     Start the dashboard server with emulation\n\n")
+		fmt.Fprintf(os.Stderr, "Usage: gbagent <command> [flags]\n\nCommands:\n  serve     Start the emulation server\n\n")
 		os.Exit(1)
 	}
 
@@ -192,19 +148,18 @@ func main() {
 	case "serve":
 		serveCmd := flag.NewFlagSet("serve", flag.ExitOnError)
 		romPath := serveCmd.String("rom", "", "Path to Game Boy ROM file (required)")
-		port := serveCmd.Int("port", 8765, "Dashboard HTTP server port")
 		jsonrpcPort := serveCmd.Int("jsonrpc-port", 8767, "JSON-RPC WebSocket port (0 = disable)")
 		loadState := serveCmd.String("load-state", "", "Path to a pre-saved state to load after boot (skips intro)")
 		serveCmd.Parse(os.Args[2:]) //nolint: errcheck
 
 		if *romPath == "" {
-			fmt.Fprintf(os.Stderr, "Usage: gbagent serve --rom <rom.gb> [--port 8765] [--jsonrpc-port 8767] [--load-state <state.sav>]\n")
+			fmt.Fprintf(os.Stderr, "Usage: gbagent serve --rom <rom.gb> [--jsonrpc-port 8767] [--load-state <state.sav>]\n")
 			os.Exit(1)
 		}
-		runServe(*romPath, *port, *jsonrpcPort, *loadState)
+		runServe(*romPath, *jsonrpcPort, *loadState)
 
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %q\n\nUsage: gbagent <command> [flags]\n\nCommands:\n  serve     Start the dashboard server with emulation\n\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "Unknown command: %q\n\nUsage: gbagent <command> [flags]\n\nCommands:\n  serve     Start the emulation server\n\n", os.Args[1])
 		os.Exit(1)
 	}
 }

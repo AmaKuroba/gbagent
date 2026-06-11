@@ -17,6 +17,7 @@ import numpy as np
 from retro_driver.dqn import DQNAgent, DQNConfig, FrameStore, Transition
 from retro_driver.env import GBEnv
 from retro_driver.reward import RewardConfig
+from retro_driver.ws_client import ViewerClient
 
 
 @dataclass
@@ -25,6 +26,7 @@ class TrainConfig:
 
     # Environment
     gbagent_url: str = "ws://localhost:8767/ws"
+    viewer_url: str = "ws://localhost:8766/metrics"
     frame_stack: int = 4
     frame_skip: int = 4
     max_episode_steps: int = 3000
@@ -79,6 +81,17 @@ def train(config: TrainConfig) -> None:
         max_steps=config.max_episode_steps,
         frame_store=frame_store,
     )
+
+    # Viewer client for metrics and takeover
+    viewer: ViewerClient | None = None
+    if config.viewer_url:
+        try:
+            viewer = ViewerClient(url=config.viewer_url)
+            viewer.start()
+            print(f"Connected to viewer at {config.viewer_url}")
+        except Exception as e:
+            print(f"Warning: could not connect to viewer: {e}")
+            viewer = None
 
     # Agent (reuse the same frame store)
     agent = DQNAgent(config=config.dqn, frame_store=frame_store)
@@ -161,7 +174,7 @@ def train(config: TrainConfig) -> None:
 
     while step < config.total_steps:
         step += 1
-        takeover = env.client.call("get_takeover")
+        takeover = viewer.get_takeover() if viewer else False
 
         # Takeover released → flush demos into replay buffer
         if prev_takeover and not takeover and demo_frames:
@@ -188,7 +201,7 @@ def train(config: TrainConfig) -> None:
             # Human plays — training loop yields, just records
             time.sleep(0.016)
             img = env.client.get_screen()
-            action = env.client.call("get_last_action")
+            action = viewer.get_last_action() if viewer else {"dpad": 0, "btn": 0}
             frame = np.array(img, dtype=np.uint8)
             demo_frames.append(frame)
             demo_actions.append((int(action["dpad"]), int(action["btn"])))
@@ -225,12 +238,13 @@ def train(config: TrainConfig) -> None:
                 now = time.time()
                 sps = 20 / (now - last_report_time) if last_report_time else 0
                 last_report_time = now
-                env.client.call("report_reward", {
-                    "total": sum(reward_window),
-                    "loss": train_stats["loss"],
-                    "epsilon": train_stats["epsilon"],
-                    "sps": sps,
-                })
+                if viewer:
+                    viewer.report_reward(
+                        total=sum(reward_window),
+                        loss=train_stats["loss"],
+                        epsilon=train_stats["epsilon"],
+                        sps=sps,
+                    )
                 reward_window.clear()
             except Exception:
                 pass
@@ -318,6 +332,8 @@ def train(config: TrainConfig) -> None:
     print(f"\nTraining complete. Final model: {final_path}")
 
     env.close()
+    if viewer:
+        viewer.stop()
     if has_tb:
         writer.close()
 
@@ -342,6 +358,7 @@ def _evaluate(env: GBEnv, agent: DQNAgent, episodes: int, checkpoint_path: str =
 def main() -> None:
     parser = argparse.ArgumentParser(description="retro-driver training loop")
     parser.add_argument("--gbagent-url", default="ws://localhost:8767/ws", help="WebSocket URL of running gbagent")
+    parser.add_argument("--viewer-url", default="ws://localhost:8766/metrics", help="WebSocket URL of dashboard viewer for metrics")
     parser.add_argument("--total-steps", type=int, default=500_000, help="Total training steps")
     parser.add_argument("--resume", default="", help="Resume from checkpoint")
     parser.add_argument("--save-dir", default="models", help="Checkpoint save directory")
@@ -383,6 +400,7 @@ def main() -> None:
 
     train_cfg = TrainConfig(
         gbagent_url=args.gbagent_url,
+        viewer_url=args.viewer_url,
         frame_stack=args.frame_stack,
         frame_skip=args.frame_skip,
         max_episode_steps=args.max_episode_steps,

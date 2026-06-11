@@ -1,9 +1,9 @@
-package dashboard
+package main
 
 import "sync/atomic"
 
 // Joypad tracks the state of all 8 Game Boy buttons as active-high bits.
-// Thread-safe via atomic operations so the main emulation loop can read
+// Thread-safe via atomic operations so the dashboard relay loop can read
 // the current state without blocking the WebSocket read pump.
 type Joypad struct {
 	state atomic.Uint32

@@ -43,8 +43,6 @@ type rpcError struct {
 // --- Handler -----------------------------------------------
 
 // jsonrpcHandler dispatches JSON-RPC methods against the bridge.
-// All read handlers read from the bridge's atomic snapshot (non-blocking).
-// All write handlers use the bridge's latch or queue via the exec channel.
 type jsonrpcHandler struct {
 	bridge *mcpBridge
 
@@ -69,21 +67,6 @@ func (h *jsonrpcHandler) Handle(req jsonrpcRequest) jsonrpcResponse {
 	switch req.Method {
 	case "get_screen":
 		h.handleGetScreen(req, &resp)
-	case "get_takeover":
-		resp.Result = h.bridge.IsTakeover()
-	case "get_last_action":
-		dpad, btn := h.bridge.GetLastAction()
-		resp.Result = map[string]any{"dpad": dpad, "btn": btn}
-	case "set_takeover":
-		var params struct {
-			Value bool `json:"value"`
-		}
-		if err := json.Unmarshal(req.Params, &params); err == nil {
-			h.bridge.SetTakeover(params.Value)
-		}
-		resp.Result = "ok"
-	case "report_reward":
-		h.handleReportReward(req, &resp)
 	case "press_button":
 		h.handlePressButton(req, &resp)
 	case "release_button":
@@ -93,7 +76,6 @@ func (h *jsonrpcHandler) Handle(req jsonrpcRequest) jsonrpcResponse {
 		h.latched = 0
 		h.mu.Unlock()
 		h.bridge.ClearAllLatched()
-		h.bridge.broadcastAction("release_all", "")
 		resp.Result = "ok"
 	case "read_ram":
 		h.handleReadRAM(req, &resp)
@@ -122,7 +104,6 @@ func (h *jsonrpcHandler) reset() {
 	h.latched = 0
 	h.mu.Unlock()
 	h.bridge.ClearAllLatched()
-	h.bridge.broadcastAction("reset", "")
 	h.exec(func() any {
 		h.bridge.cpu.Reset()
 		h.bridge.ppu.Reset()
@@ -185,7 +166,6 @@ func (h *jsonrpcHandler) handlePressButton(req jsonrpcRequest, resp *jsonrpcResp
 	h.latched |= bit
 	h.mu.Unlock()
 	h.bridge.SetLatchedBits(bit)
-	h.bridge.broadcastAction("press_button", params.Button)
 	resp.Result = "ok"
 }
 
@@ -206,7 +186,6 @@ func (h *jsonrpcHandler) handleReleaseButton(req jsonrpcRequest, resp *jsonrpcRe
 	h.latched &^= bit
 	h.mu.Unlock()
 	h.bridge.ClearLatchedBits(bit)
-	h.bridge.broadcastAction("release_button", params.Button)
 	resp.Result = "ok"
 }
 
@@ -269,7 +248,6 @@ func (h *jsonrpcHandler) handleSaveState(req jsonrpcRequest, resp *jsonrpcRespon
 		resp.Error = &rpcError{Code: -32602, Message: "missing 'path' field"}
 		return
 	}
-	h.bridge.broadcastAction("save_state", params.Path)
 	result := h.exec(func() any {
 		state := h.bridge.mmu.DumpEmulatorState()
 		if err := os.MkdirAll(filepath.Dir(params.Path), 0755); err != nil {
@@ -300,7 +278,6 @@ func (h *jsonrpcHandler) handleLoadState(req jsonrpcRequest, resp *jsonrpcRespon
 		resp.Error = &rpcError{Code: -32602, Message: "missing 'path' field"}
 		return
 	}
-	h.bridge.broadcastAction("load_state", params.Path)
 	result := h.exec(func() any {
 		f, err := os.Open(params.Path)
 		if err != nil {
@@ -322,31 +299,6 @@ func (h *jsonrpcHandler) handleLoadState(req jsonrpcRequest, resp *jsonrpcRespon
 	} else {
 		resp.Result = "ok"
 	}
-}
-
-func (h *jsonrpcHandler) handleReportReward(req jsonrpcRequest, resp *jsonrpcResponse) {
-	var params struct {
-		Total     float64            `json:"total"`
-		Breakdown map[string]float64 `json:"breakdown,omitempty"`
-		Loss      float64            `json:"loss,omitempty"`
-		Epsilon   float64            `json:"epsilon,omitempty"`
-		Sps       float64            `json:"sps,omitempty"`
-	}
-	if err := json.Unmarshal(req.Params, &params); err != nil {
-		resp.Error = &rpcError{Code: -32602, Message: "invalid params"}
-		return
-	}
-	data, _ := json.Marshal(map[string]any{
-		"reward_total": params.Total,
-		"breakdown":    params.Breakdown,
-		"loss":         params.Loss,
-		"epsilon":      params.Epsilon,
-		"sps":          params.Sps,
-	})
-	if h.bridge.hub != nil {
-		h.bridge.hub.BroadcastText(data)
-	}
-	resp.Result = "ok"
 }
 
 // --- WebSocket server --------------------------------------
@@ -450,4 +402,16 @@ func encodeFrameB64(fb [160][144]byte) (string, error) {
 		return "", fmt.Errorf("failed to encode screenshot")
 	}
 	return base64.StdEncoding.EncodeToString(pngData), nil
+}
+
+// btnBits maps button names to their bitmask values.
+var btnBits = map[string]byte{
+	"A":      1 << 4,
+	"B":      1 << 5,
+	"SELECT": 1 << 6,
+	"START":  1 << 7,
+	"RIGHT":  1 << 0,
+	"LEFT":   1 << 1,
+	"UP":     1 << 2,
+	"DOWN":   1 << 3,
 }

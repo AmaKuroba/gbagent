@@ -4,18 +4,24 @@
 
 Two packages in a monorepo, no shared dependencies:
 
-- **`emulator/`** — Go. Headless Game Boy emulator with MCP/JSON-RPC interface.
+- **`emulator/`** — Go. Game Boy emulator core + JSON-RPC server.
 - **`retro-driver/`** — Python (uv). RL agent (DQN) that connects to the emulator via WebSocket.
 
-Entry points: `emulator/cmd/gbagent/main.go`, `retro-driver/retro_driver/train.py`
+Entry points: `emulator/cmd/gbagent/main.go`, `emulator/cmd/viewer/main.go`, `retro-driver/retro_driver/train.py`
+
+Three separate processes:
+1. **gbagent** (emulator) — runs Game Boy at 60fps, serves JSON-RPC WebSocket on port 8767
+2. **viewer** (dashboard) — serves web UI on port 8765, metrics on port 8766, connects to emulator as client
+3. **train** (Python driver) — connects to emulator for game control, viewer for metrics
 
 ## Commands
 
 ### Go (from `emulator/`)
 
 ```
-just build          # build binary to bin/gbagent
-just check          # build + vet + lint + fast tests (preferred pre-commit)
+just build          # build emulator binary to bin/gbagent
+just build-viewer   # build viewer binary to bin/viewer
+just check          # build both + vet + lint + fast tests
 just ci             # same as check
 just test           # all tests (downloads test ROMs on first run)
 just test-fast      # skip slow Mooneye tests
@@ -38,7 +44,7 @@ Or directly: `uv run ruff check retro_driver/`, `uv run pytest tests/ -v`
 ### Combined
 
 ```
-just watch-train <rom> [checkpoint]  # starts gbagent + train, cleans up on exit
+just watch-train <rom> [checkpoint]  # starts emulator + viewer + train, cleans up on exit
 just tensorboard                     # http://localhost:6006
 just killall                         # kill leftover processes
 ```
@@ -58,3 +64,5 @@ All `just` commands run from the repo root — each recipe sets its own working 
 - Python requires 3.12+. Managed with `uv sync` (not pip).
 - Game configs in `retro-driver/configs/` — YAML with RAM addresses verified against pret/pokered `.sym` file.
 - WebSocket server (`CheckOrigin: true`) is intentional — app must work on LAN viewed by multiple devices.
+- Emulator is pure: no web UI, no training awareness, no takeover logic. Just input/output.
+- Takeover and action tracking live in the viewer/dashboard, not the emulator.

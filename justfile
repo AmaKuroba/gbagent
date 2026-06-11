@@ -6,6 +6,11 @@ build:
     go build -o ../bin/gbagent ./cmd/gbagent
 
 [working-directory: 'emulator']
+build-viewer:
+    mkdir -p ../bin
+    go build -o ../bin/viewer ./cmd/viewer
+
+[working-directory: 'emulator']
 vet:
     go vet ./...
 
@@ -63,19 +68,21 @@ test-apu: testdata
 testdata:
     ./scripts/fetch-testdata.sh
 
+# Start emulator (JSON-RPC server only)
 [working-directory: 'emulator']
 serve rom:
     go run ./cmd/gbagent serve --rom {{rom}}
 
+# Start dashboard viewer (connects to emulator)
 [working-directory: 'emulator']
-serve-with-ws rom port='8765' jsonrpc_port='8767':
-    go run ./cmd/gbagent serve --rom {{rom}} --port {{port}} --jsonrpc-port {{jsonrpc_port}}
+viewer rom:
+    go run ./cmd/viewer --emulator-url ws://localhost:8767/ws
 
 # Quick check: build + vet + lint + fast tests
-check: build vet lint test-fast
+check: build build-viewer vet lint test-fast
 
 # CI pipeline: build + vet + lint + fast tests only
-ci: build vet lint test-fast
+ci: build build-viewer vet lint test-fast
 
 # === Retro-driver (Python) ===
 
@@ -101,7 +108,7 @@ fmt-retro:
 train args='':
     uv run python -m retro_driver.train {{args}}
 
-# Like train but starts gbagent + opens dashboard at http://localhost:8765
+# Start emulator + viewer + training in one go
 # checkpoint: optional --load-state path (pre-saved state to skip intro)
 watch-train rom checkpoint='' args='':
     #!/usr/bin/env bash
@@ -109,21 +116,23 @@ watch-train rom checkpoint='' args='':
     cd emulator
     GB_LOAD=
     if [ -n "{{checkpoint}}" ]; then GB_LOAD="--load-state {{checkpoint}}"; fi
-    go run ./cmd/gbagent serve --rom {{rom}} --jsonrpc-port 8767 $GB_LOAD & GBAGENT_PID=$!
+    go run ./cmd/gbagent serve --rom {{rom}} --jsonrpc-port 8767 $GB_LOAD & EMU_PID=$!
+    go run ./cmd/viewer --emulator-url ws://localhost:8767/ws --port 8765 --metrics-port 8766 & VIEWER_PID=$!
     sleep 2
     cd ../retro-driver
-    uv run python -m retro_driver.train {{args}} || true
-    kill $GBAGENT_PID 2>/dev/null || true
-    wait $GBAGENT_PID 2>/dev/null || true
+    uv run python -m retro_driver.train --viewer-url ws://localhost:8766/metrics {{args}} || true
+    kill $EMU_PID $VIEWER_PID 2>/dev/null || true
+    wait $EMU_PID $VIEWER_PID 2>/dev/null || true
 
 # Start TensorBoard to monitor training (http://localhost:6006)
 [working-directory: 'retro-driver']
 tensorboard:
     uv run python -m tensorboard.main --logdir logs --bind_all
 
-# Kill any leftover gbagent / tensorboard / training processes
+# Kill any leftover processes
 killall:
     pkill -9 -f "bin/gbagent" 2>/dev/null || true
+    pkill -9 -f "bin/viewer" 2>/dev/null || true
     pkill -9 -f "tensorboard" 2>/dev/null || true
     pkill -9 -f "retro_driver" 2>/dev/null || true
     pkill -9 -f "uv run python" 2>/dev/null || true

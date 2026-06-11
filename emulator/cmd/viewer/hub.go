@@ -1,4 +1,4 @@
-package dashboard
+package main
 
 import (
 	"sync"
@@ -55,7 +55,6 @@ func (h *Hub) Run() {
 			}
 			h.mu.Unlock()
 		case <-h.stop:
-			// Unregister all connected clients.
 			h.mu.Lock()
 			for client := range h.clients {
 				delete(h.clients, client)
@@ -82,7 +81,6 @@ func (h *Hub) BroadcastBinary(data []byte) {
 		select {
 		case client.send <- Message{Type: 2, Data: data}:
 		default:
-			// Client buffer full; skip.
 		}
 	}
 }
@@ -96,7 +94,6 @@ func (h *Hub) BroadcastText(data []byte) {
 		select {
 		case client.send <- Message{Type: 1, Data: data}:
 		default:
-			// Client buffer full; skip.
 		}
 	}
 }
