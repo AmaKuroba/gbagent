@@ -11,19 +11,22 @@ type busStub struct {
 	data [0x10000]byte
 }
 
-func (b *busStub) Read(addr uint16) byte               { return b.data[addr] }
-func (b *busStub) Write(addr uint16, val byte)          { b.data[addr] = val }
-func (b *busStub) Read16(addr uint16) uint16            { return uint16(b.data[addr]) | uint16(b.data[addr+1])<<8 }
-func (b *busStub) Write16(addr uint16, val uint16)      { b.data[addr] = byte(val); b.data[addr+1] = byte(val >> 8) }
-func (b *busStub) LoadROM(data []byte)                   {}
-func (b *busStub) LoadBootROM(data []byte)               {}
-func (b *busStub) ReadIF() byte                          { return 0 }
-func (b *busStub) ReadIE() byte                          { return 0 }
-func (b *busStub) WriteIF(val byte)                      {}
-func (b *busStub) SetJoypadButtons(buttons byte)          {}
-func (b *busStub) DMAStep(cycles int)                      {}
-func (b *busStub) SerialStep(cycles int)                    {}
-func (b *busStub) StepDevices(cycles int)                   {}
+func (b *busStub) Read(addr uint16) byte       { return b.data[addr] }
+func (b *busStub) Write(addr uint16, val byte) { b.data[addr] = val }
+func (b *busStub) Read16(addr uint16) uint16   { return uint16(b.data[addr]) | uint16(b.data[addr+1])<<8 }
+func (b *busStub) Write16(addr uint16, val uint16) {
+	b.data[addr] = byte(val)
+	b.data[addr+1] = byte(val >> 8)
+}
+func (b *busStub) LoadROM(data []byte)           {}
+func (b *busStub) LoadBootROM(data []byte)       {}
+func (b *busStub) ReadIF() byte                  { return 0 }
+func (b *busStub) ReadIE() byte                  { return 0 }
+func (b *busStub) WriteIF(val byte)              {}
+func (b *busStub) SetJoypadButtons(buttons byte) {}
+func (b *busStub) DMAStep(cycles int)            {}
+func (b *busStub) SerialStep(cycles int)         {}
+func (b *busStub) StepDevices(cycles int)        {}
 
 func NewBusStub() *busStub { return &busStub{} }
 

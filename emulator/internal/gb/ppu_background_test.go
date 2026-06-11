@@ -1,9 +1,9 @@
 package gb
 
 import (
-	"testing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 func writeTileToVRAM(mmu *MemoryBus, tileIndex int, shade byte) {
@@ -294,8 +294,8 @@ func TestWindowDisabledByLCDC0(t *testing.T) {
 	// bit 0=0 (BG/Win disabled), bit 4=1 for unsigned tile addressing so our test tiles resolve.
 	// Value: 0x80 | 0x40 | 0x20 | 0x10 = 0xF0
 	ppu.WriteRegister(0xFF40, 0xF0)
-	ppu.WriteRegister(0xFF4A, 0)  // WY = 0
-	ppu.WriteRegister(0xFF4B, 7)  // WX = 7
+	ppu.WriteRegister(0xFF4A, 0) // WY = 0
+	ppu.WriteRegister(0xFF4B, 7) // WX = 7
 	ppu.Step(2 * FrameCycles)
 	s := ppu.GetScreen()
 	// When LCDC bit 0 is 0, window should not be drawn even though bit 5 is set.

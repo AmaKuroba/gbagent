@@ -1,7 +1,7 @@
 # Pokémon Red/Blue — RAM scanner reward configuration
 #
-# Addresses verified against the pret/pokered disassembly
-# and Bulbapedia RAM map. wEventFlags base: $D747.
+# All addresses verified against the pret/pokered .sym file:
+# https://github.com/pret/pokered (branch: symbols)
 #
 # Scanner types:
 #   discrete — fires once (reward_on_change) when the byte changes
@@ -19,69 +19,62 @@ start_state: "checkpoints/pokemon_red_outskirts.sav"
 
 scanners:
 
-  # ── Title screen / intro anti-idle ──────────────────────
-  # hGameState = 0x00 = title/intro. -0.1/step while stuck.
-  - type: state_penalty
-    name: "on_title_screen"
-    ram_addr: 0xFFCC
-    target_value: 0x00
-    penalty_per_step: -0.1
-
   # ── Exploration ─────────────────────────────────────────
-  # wCurMap at 0xD35E (1 byte, map ID). Rewards once per
+  # wCurMap at $D35E (1 byte, map ID). Rewards once per
   # unique map. No farming back-and-forth between rooms.
   - type: first_visit
     name: "new_map"
     ram_addr: 0xD35E
     reward_on_change: 5.0
 
-  # ── Room stuck penalty ─────────────────────────────────-
-  # wCurMap at 0xD35E. If the agent stays in the same map
-  # for >150 steps (~1.25 min), -0.05/step until it leaves.
+  # ── Room stuck penalty ──────────────────────────────────
+  # wCurMap at $D35E. If the agent stays in the same map
+  # for >30 steps (~2.5 seconds), -0.05/step until it leaves.
   - type: stuck_penalty
     name: "stuck_in_room"
     ram_addr: 0xD35E
-    grace_period: 150
+    grace_period: 30
     penalty_per_step: -0.05
 
   # ── Player movement ────────────────────────────────────
-  # wXCoord at 0xD362, wYCoord at 0xD361. Small per-step
-  # rewards for any movement. Not anti-grind (that's below).
+  # wXCoord at $D362, wYCoord at $D361. Per-step
+  # rewards for any movement.
   - type: discrete
     name: "player_moved_x"
     ram_addr: 0xD362
-    reward_on_change: 0.02
+    reward_on_change: 0.1
 
   - type: discrete
     name: "player_moved_y"
     ram_addr: 0xD361
-    reward_on_change: 0.02
+    reward_on_change: 0.1
 
   # ── Player health ──────────────────────────────────────
-  # wPartyMon1HP at 0xD16A (2 bytes, little-endian).
+  # wPartyMon1HP at $D16C (2 bytes, little-endian).
   # Rewards healing (potions, Pokémon Center). Positive delta only.
+  # Scaled down to avoid dominating the reward signal.
   - type: delta
     name: "player_hp"
-    ram_addr: 0xD16A
+    ram_addr: 0xD16C
     length: 2
-    reward_per_unit: 0.5
+    reward_per_unit: 0.05
 
-  # wPartyMon1MaxHP at 0xD1C8 (2 bytes, little-endian).
+  # wPartyMon1MaxHP at $D18D (2 bytes, little-endian).
   # Rewards when max HP increases (evolution, level-up).
   - type: delta
     name: "max_hp"
-    ram_addr: 0xD1C8
+    ram_addr: 0xD18D
     length: 2
-    reward_per_unit: 1.0
+    reward_per_unit: 0.1
 
   # ── Party progress ─────────────────────────────────────
-  # wPartyCount at 0xD15D (1 byte, 0-6).
+  # wPartyCount at $D163 (1 byte, 0-6).
   - type: discrete
     name: "party_count_up"
-    ram_addr: 0xD15D
+    ram_addr: 0xD163
     reward_on_change: 2.0
 
-  # wObtainedBadges at 0xD356 (1 byte, bitmask per badge).
+  # wObtainedBadges at $D356 (1 byte, bitmask per badge).
   # Fires only when badge byte changes (only increases).
   - type: discrete
     name: "badge_earned"
@@ -89,33 +82,34 @@ scanners:
     reward_on_change: 20.0
 
   # ── Money ──────────────────────────────────────────────
-  # wMoney at 0xD355 (3 bytes, BCD). Discrete on low byte
+  # wPlayerMoney at $D347 (3 bytes, BCD). Discrete on low byte
   # triggers on any money change.
   - type: discrete
     name: "money_changed"
-    ram_addr: 0xD355
+    ram_addr: 0xD347
     reward_on_change: 0.5
 
   # ── Battles ────────────────────────────────────────────
-  # wBattleType at 0xD00B (0 = no battle, 1+ = battle).
+  # wBattleType at $D05A (0 = no battle, 1+ = battle).
   - type: discrete
     name: "battle_start"
-    ram_addr: 0xD00B
+    ram_addr: 0xD05A
     reward_on_change: 0.5
 
   # ── Pokédex ────────────────────────────────────────────
-  # wPokedexOwned at 0xD30A (bitfield, 16 bytes).
-  - type: delta
+  # wPokedexOwned at $D2F7 (bitfield, 19 bytes for 151 mons).
+  # Uses first_visit to reward each unique owned count once.
+  - type: first_visit
     name: "pokedex_owned"
-    ram_addr: 0xD30A
-    length: 16
-    reward_per_unit: 5.0
+    ram_addr: 0xD2F7
+    reward_on_change: 5.0
 
-  # wPokedexSeen at 0xD2F7 (bitfield, 16 bytes).
+  # wPokedexSeen at $D30A (bitfield, 19 bytes for 151 mons).
+  # Delta rewards each new seen pokemon (bit flips in the bitfield).
   - type: delta
     name: "pokedex_seen"
-    ram_addr: 0xD2F7
-    length: 16
+    ram_addr: 0xD30A
+    length: 19
     reward_per_unit: 0.5
 
   # ── Event flags — early game ──────────────────────────
@@ -154,7 +148,7 @@ scanners:
     reward_per_unit: 0.5
 
   # ── Event flags — Viridian / Pewter ──────────────────
-  # $D752 (beat Giovanni), $D755 (beat Brock), $D756
+  # $D752 (beat Giovanni), $D755 (beat Brock)
   - type: delta
     name: "events_viridian"
     ram_addr: 0xD752
@@ -182,10 +176,25 @@ scanners:
     reward_per_unit: 2.0
 
   # ── Key items / story flags ───────────────────────────
-  # $D82B-D$D82D (game progress flags bitfield). Delta over
+  # $D82B-$D82D (game progress flags bitfield). Delta over
   # 3 bytes catches Pokedex, SS Ticket, Bike, key items.
   - type: delta
     name: "story_progress"
     ram_addr: 0xD82B
     length: 3
     reward_per_unit: 1.0
+
+# ── Address reference (from pret/pokered .sym file) ─────
+#   wCurMap          = 0xD35E  ✓
+#   wXCoord          = 0xD362  ✓
+#   wYCoord          = 0xD361  ✓
+#   wObtainedBadges  = 0xD356  ✓
+#   wPartyCount      = 0xD163  ✓
+#   wPartyMon1HP     = 0xD16C  ✓  (2 bytes LE)
+#   wPartyMon1MaxHP  = 0xD18D  ✓  (2 bytes LE)
+#   wPlayerMoney     = 0xD347  ✓  (3 bytes BCD)
+#   wBattleType      = 0xD05A  ✓
+#   wPokedexOwned    = 0xD2F7  ✓  (19 bytes)
+#   wPokedexSeen     = 0xD30A  ✓  (19 bytes)
+#   wEventFlags      = 0xD747  ✓
+#   hJoy6            = 0xFFB6  (HRAM joypad)

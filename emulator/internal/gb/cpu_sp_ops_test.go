@@ -5,7 +5,8 @@ import (
 )
 
 // TestAddSPe8 verifies ADD SP, e8 (0xE8) flag behavior per Pan Docs:
-//   Z=0, N=0, H=carry from bit 3 of low byte, C=carry from bit 7 of low byte
+//
+//	Z=0, N=0, H=carry from bit 3 of low byte, C=carry from bit 7 of low byte
 func TestAddSPe8(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -43,7 +44,7 @@ func TestAddSPe8(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			bus := NewBusStub()
-			bus.Write(0x0100, 0xE8) // ADD SP, e8 opcode
+			bus.Write(0x0100, 0xE8)  // ADD SP, e8 opcode
 			bus.Write(0x0101, tt.e8) // e8 operand
 			c := NewCore(bus)
 			c.SP = tt.sp
@@ -77,7 +78,8 @@ func TestAddSPe8(t *testing.T) {
 }
 
 // TestLDHLSPe8 verifies LD HL, SP+e8 (0xF8) flag behavior per Pan Docs:
-//   Z=0, N=0, H=carry from bit 3 of low byte, C=carry from bit 7 of low byte
+//
+//	Z=0, N=0, H=carry from bit 3 of low byte, C=carry from bit 7 of low byte
 func TestLDHLSPe8(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -102,7 +104,7 @@ func TestLDHLSPe8(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			bus := NewBusStub()
-			bus.Write(0x0100, 0xF8) // LD HL, SP+e8 opcode
+			bus.Write(0x0100, 0xF8)  // LD HL, SP+e8 opcode
 			bus.Write(0x0101, tt.e8) // e8 operand
 			c := NewCore(bus)
 			c.SP = tt.sp

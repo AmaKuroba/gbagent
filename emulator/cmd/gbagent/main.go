@@ -148,6 +148,7 @@ func runServe(romPath string, port int, jsonrpcPort int, loadState string) {
 	signal.Notify(sigCh, os.Interrupt)
 
 	log.Printf("gbagent: emulation running (%s)", bridge.cart.GetTitle())
+	var frameCount int
 	for {
 		select {
 		case <-sigCh:
@@ -156,6 +157,12 @@ func runServe(romPath string, port int, jsonrpcPort int, loadState string) {
 			return
 		case <-frameTicker.C:
 			bridge.runFrame()
+
+			// Advance MBC3 RTC once per second (every 60 frames).
+			frameCount++
+			if frameCount%60 == 0 {
+				bridge.cart.TickRTC(1)
+			}
 
 			screen, _, _, _, _ := bridge.snap.read()
 			if pngData := encodeFrame(screen); pngData != nil {

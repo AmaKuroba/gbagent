@@ -22,23 +22,23 @@ type Cartridge interface {
 type CartridgeType byte
 
 const (
-	CartridgeROMOnly          CartridgeType = 0x00
-	CartridgeMBC1             CartridgeType = 0x01
-	CartridgeMBC1RAM          CartridgeType = 0x02
-	CartridgeMBC1RAMBattery   CartridgeType = 0x03
-	CartridgeMBC3TimerBattery      CartridgeType = 0x0F // MBC3 + Timer + Battery
-	CartridgeMBC3TimerRAMBattery   CartridgeType = 0x10 // MBC3 + Timer + RAM + Battery
-	CartridgeMBC3                  CartridgeType = 0x11 // MBC3
-	CartridgeMBC3RAM               CartridgeType = 0x12 // MBC3 + RAM
-	CartridgeMBC3RAMBattery        CartridgeType = 0x13 // MBC3 + RAM + Battery
-	CartridgeMBC5             CartridgeType = 0x19
-	CartridgeMBC5RAM          CartridgeType = 0x1A
-	CartridgeMBC5RAMBattery   CartridgeType = 0x1B
-	CartridgeMBC5Rumble       CartridgeType = 0x1C
-	CartridgeMBC5RumbleRAM          CartridgeType = 0x1D
+	CartridgeROMOnly              CartridgeType = 0x00
+	CartridgeMBC1                 CartridgeType = 0x01
+	CartridgeMBC1RAM              CartridgeType = 0x02
+	CartridgeMBC1RAMBattery       CartridgeType = 0x03
+	CartridgeMBC3TimerBattery     CartridgeType = 0x0F // MBC3 + Timer + Battery
+	CartridgeMBC3TimerRAMBattery  CartridgeType = 0x10 // MBC3 + Timer + RAM + Battery
+	CartridgeMBC3                 CartridgeType = 0x11 // MBC3
+	CartridgeMBC3RAM              CartridgeType = 0x12 // MBC3 + RAM
+	CartridgeMBC3RAMBattery       CartridgeType = 0x13 // MBC3 + RAM + Battery
+	CartridgeMBC5                 CartridgeType = 0x19
+	CartridgeMBC5RAM              CartridgeType = 0x1A
+	CartridgeMBC5RAMBattery       CartridgeType = 0x1B
+	CartridgeMBC5Rumble           CartridgeType = 0x1C
+	CartridgeMBC5RumbleRAM        CartridgeType = 0x1D
 	CartridgeMBC5RumbleRAMBattery CartridgeType = 0x1E
-	CartridgeMBC2              CartridgeType = 0x05
-	CartridgeMBC2RAMBattery    CartridgeType = 0x06
+	CartridgeMBC2                 CartridgeType = 0x05
+	CartridgeMBC2RAMBattery       CartridgeType = 0x06
 )
 
 // IsMBC3 returns true if the cartridge type uses the MBC3 banking scheme.
@@ -130,10 +130,10 @@ func ramBanksFromCode(code byte) int {
 // Supports up to 2MB ROM and/or 32KB RAM.
 type mbc1Cartridge struct {
 	*MBCState
-	data      []byte   // Full ROM contents
-	ram       [][]byte // RAM banks (each 8KB)
-	romBanks  int      // Number of 16KB ROM banks
-	ramBanks  int      // Number of 8KB RAM banks
+	data       []byte   // Full ROM contents
+	ram        [][]byte // RAM banks (each 8KB)
+	romBanks   int      // Number of 16KB ROM banks
+	ramBanks   int      // Number of 8KB RAM banks
 	hasBattery bool
 }
 
@@ -152,7 +152,7 @@ func newMBC1(romData []byte, cType CartridgeType) *mbc1Cartridge {
 	hasBattery := (cType == CartridgeMBC1RAMBattery)
 
 	return &mbc1Cartridge{
-		MBCState: &MBCState{MBCType: 1},
+		MBCState:   &MBCState{MBCType: 1},
 		data:       romData,
 		ram:        ram,
 		romBanks:   nBanks,
@@ -329,9 +329,9 @@ func (c *mbc1Cartridge) TickRTC(seconds int64) {}
 
 type mbc2Cartridge struct {
 	*MBCState
-	data      []byte      // Full ROM contents
-	ram       [0x200]byte // Internal 512×4-bit RAM (lower nibble only)
-	romBanks  int         // Number of 16KB ROM banks
+	data       []byte      // Full ROM contents
+	ram        [0x200]byte // Internal 512×4-bit RAM (lower nibble only)
+	romBanks   int         // Number of 16KB ROM banks
 	hasBattery bool
 }
 
@@ -344,9 +344,9 @@ func newMBC2(romData []byte, cType CartridgeType) *mbc2Cartridge {
 	hasBattery := (cType == CartridgeMBC2RAMBattery)
 
 	return &mbc2Cartridge{
-		MBCState: &MBCState{RomBankLow: 1, MBCType: 2},
+		MBCState:   &MBCState{RomBankLow: 1, MBCType: 2},
 		data:       romData,
-		romBanks:  nBanks,
+		romBanks:   nBanks,
 		hasBattery: hasBattery,
 	}
 }
@@ -492,10 +492,10 @@ func (c *mbc2Cartridge) TickRTC(seconds int64) {}
 // Used by Pokémon G/S/C, Pokémon Yellow (J), and many other late-DMG/GBC games.
 type mbc3Cartridge struct {
 	*MBCState
-	data      []byte   // Full ROM contents
-	romBanks  int      // Number of 16KB ROM banks
-	ram       [][]byte // RAM banks (each 8KB)
-	ramBanks  int      // Number of 8KB RAM banks
+	data       []byte   // Full ROM contents
+	romBanks   int      // Number of 16KB ROM banks
+	ram        [][]byte // RAM banks (each 8KB)
+	ramBanks   int      // Number of 8KB RAM banks
 	hasBattery bool
 	hasTimer   bool // true for types 0x0F and 0x10 (with RTC)
 }
@@ -520,7 +520,7 @@ func newMBC3(romData []byte, cType CartridgeType) *mbc3Cartridge {
 		cType == CartridgeMBC3TimerRAMBattery
 
 	return &mbc3Cartridge{
-		MBCState: &MBCState{MBCType: 3},
+		MBCState:   &MBCState{MBCType: 3},
 		data:       romData,
 		ram:        ram,
 		romBanks:   nBanks,
@@ -675,11 +675,11 @@ func (c *mbc3Cartridge) TickRTC(seconds int64) {
 	}
 
 	// Update registers from clock
-	c.RTCRegs[0] = byte(c.RTCClock % 60)       // S
-	c.RTCRegs[1] = byte((c.RTCClock / 60) % 60) // M
+	c.RTCRegs[0] = byte(c.RTCClock % 60)          // S
+	c.RTCRegs[1] = byte((c.RTCClock / 60) % 60)   // M
 	c.RTCRegs[2] = byte((c.RTCClock / 3600) % 24) // H
 	totalDays := c.RTCClock / 86400
-	c.RTCRegs[3] = byte(totalDays & 0xFF)          // DL
+	c.RTCRegs[3] = byte(totalDays & 0xFF)                            // DL
 	c.RTCRegs[4] = (c.RTCRegs[4] & 0xC0) | byte((totalDays>>8)&0x01) // DH
 }
 
@@ -733,8 +733,8 @@ func (c *mbc3Cartridge) SaveRAM() []byte {
 		copy(dst[i*0x2000:(i+1)*0x2000], bank)
 	}
 	if c.hasTimer {
-		copy(dst[ramSize:], c.RTCRegs[:])               // 5 bytes
-		dst[ramSize+5] = byte(c.RTCClock)                // int64 little-endian
+		copy(dst[ramSize:], c.RTCRegs[:]) // 5 bytes
+		dst[ramSize+5] = byte(c.RTCClock) // int64 little-endian
 		dst[ramSize+6] = byte(c.RTCClock >> 8)
 		dst[ramSize+7] = byte(c.RTCClock >> 16)
 		dst[ramSize+8] = byte(c.RTCClock >> 24)
@@ -814,7 +814,7 @@ func newMBC5(romData []byte, cType CartridgeType) *mbc5Cartridge {
 	hasRumble := cType.HasRumble()
 
 	return &mbc5Cartridge{
-		MBCState: &MBCState{MBCType: 5},
+		MBCState:   &MBCState{MBCType: 5},
 		data:       romData,
 		ram:        ram,
 		romBanks:   nBanks,

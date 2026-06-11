@@ -25,6 +25,6 @@ func TestDebugJoypad(t *testing.T) {
 	r2 := joypad.ReadRegister()
 	t.Logf("second read: result=%02x lastRead=%02x ifReg=%02x", r2, joypad.lastRead, mmu.ifReg)
 	t.Logf("low nibble: %02x", r2&0x0F)
-	
+
 	fmt.Printf("DEBUG r2=%02x buttons=%02x columnSelect=%02x lastRead=%02x ifReg=%02x\n", r2, joypad.buttons, joypad.columnSelect, joypad.lastRead, mmu.ifReg)
 }

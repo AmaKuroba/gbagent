@@ -36,6 +36,9 @@ class RewardConfig:
     # Per-game scanners
     scanners: list[ScannerConfig] = field(default_factory=list)
 
+    # Step penalty
+    step_penalty: float = -0.01  # constant per-step pressure to keep moving
+
     # Clipping
     min_reward: float = -10.0
     max_reward: float = 10.0
@@ -78,12 +81,16 @@ class RewardSystem:
         total = 0.0
         breakdown: dict[str, float] = {}
 
-        # 1. Screen novelty
+        # 1. Constant step penalty (pressure to make progress every step)
+        breakdown["step_penalty"] = self.config.step_penalty
+        total += self.config.step_penalty
+
+        # 2. Screen novelty
         novelty = self._compute_novelty(frame, prev_frame)
         breakdown["novelty"] = novelty
         total += novelty
 
-        # 2. Anti-grind screen-mode decay
+        # 3. Anti-grind screen-mode decay
         if novelty < 0.1:
             self._same_screen_steps += 1
         else:
@@ -97,12 +104,12 @@ class RewardSystem:
             breakdown["stale_penalty"] = penalty
             total += penalty
 
-        # 3. RAM scanners
+        # 4. RAM scanners
         ram_reward = self._scan_ram(mcp_client)
         breakdown["ram_scanners"] = ram_reward
         total += ram_reward
 
-        # 4. Anti-grind tile movement
+        # 5. Anti-grind tile movement
         tile_id = self._current_tile_id(frame)
         if tile_id is not None:
             movement = 0.0
@@ -152,7 +159,9 @@ class RewardSystem:
             try:
                 if scanner.type == "state_penalty":
                     val = client.read_ram(scanner.ram_addr)
-                    if val == scanner.target_value:
+                    if (scanner.inverted and val != scanner.target_value) or (
+                        not scanner.inverted and val == scanner.target_value
+                    ):
                         total += scanner.penalty_per_step
                 elif scanner.type == "first_visit":
                     val = client.read_ram(scanner.ram_addr)

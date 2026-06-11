@@ -114,8 +114,8 @@ func TestMooneye_Acceptance(t *testing.T) {
 
 	// Tests from acceptance/*.gb that target generic DMG (no suffix filtering done via list)
 	tests := []struct {
-		name     string
-		timeout  time.Duration
+		name    string
+		timeout time.Duration
 	}{
 		// Alphabetically ordered
 		{"add_sp_e_timing", 5 * time.Second},

@@ -6,6 +6,7 @@ Training: Double DQN with experience replay, epsilon decay, target network.
 
 from __future__ import annotations
 
+import logging
 import random
 from collections import deque
 from dataclasses import dataclass
@@ -15,6 +16,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+logger = logging.getLogger(__name__)
 
 # ---- device -------------------------------------------------------
 
@@ -28,7 +31,7 @@ def get_device() -> torch.device:
 
 
 DEVICE = get_device()
-print(f"[retro-driver] DQN device: {DEVICE}")
+logger.info("DQN device: %s", DEVICE)
 
 
 # ---- frame store (individual frames, not stacks) ------------------
@@ -245,18 +248,32 @@ class ReplayBuffer:
         self.frame_stack = frame_stack
         self.frame_store = frame_store or FrameStore(max_frames=capacity + 1000)
         self.buffer: deque[Transition] = deque(maxlen=capacity)
+        self._valid_indices: set[int] = set()  # indices with valid frame stacks
 
     def push(self, t: Transition) -> None:
+        idx = len(self.buffer)
         self.buffer.append(t)
+        # Old entry at idx was evicted if buffer was full; remove from valid set
+        if idx in self._valid_indices:
+            self._valid_indices.discard(idx)
+        # Check if new entry is valid
+        if self.frame_store.is_valid_stack(t.frame_gid, self.frame_stack):
+            self._valid_indices.add(idx)
+
+    def _rebuild_valid_indices(self) -> None:
+        """Rebuild the valid indices set from scratch."""
+        self._valid_indices = {
+            i for i, t in enumerate(self.buffer)
+            if self.frame_store.is_valid_stack(t.frame_gid, self.frame_stack)
+        }
 
     def sample(self, batch_size: int) -> list[Transition]:
         """Sample random individual transitions with valid frames."""
-        valid: list[Transition] = [
-            t for t in self.buffer if self.frame_store.is_valid_stack(t.frame_gid, self.frame_stack)
-        ]
-        if len(valid) < batch_size:
-            return random.sample(valid, len(valid))
-        return random.sample(valid, batch_size)
+        if not self._valid_indices:
+            return []
+        if len(self._valid_indices) <= batch_size:
+            return [self.buffer[i] for i in random.sample(list(self._valid_indices), len(self._valid_indices))]
+        return [self.buffer[i] for i in random.sample(list(self._valid_indices), batch_size)]
 
     def sample_sequences(self, batch_size: int, seq_len: int) -> list[list[Transition]]:
         """Sample sequences of consecutive transitions for LSTM training.
@@ -264,49 +281,39 @@ class ReplayBuffer:
         Each sequence is seq_len consecutive transitions from the same
         episode with valid frame data.
         """
-        # Build index of valid sequence start positions
-        # A valid start: transition at i has valid frames, and i+seq_len-1
-        # exists with no episode boundaries in between
         buf = list(self.buffer)
         n = len(buf)
         if n < seq_len:
             return []
 
-        # Pre-compute which positions are episode boundaries
+        # Precompute episode boundaries and valid frame positions
         is_boundary = [t.terminated or t.truncated for t in buf]
+        has_valid_start = [
+            self.frame_store.is_valid_stack(t.frame_gid, self.frame_stack) for t in buf
+        ]
 
-        sequences: list[list[Transition]] = []
-        attempts = 0
-        max_attempts = batch_size * 20
-
-        while len(sequences) < batch_size and attempts < max_attempts:
-            attempts += 1
-            start = random.randint(0, n - seq_len)
-
-            # Check this is a valid sequence:
-            # 1. Start position has valid frames
-            if not self.frame_store.is_valid_stack(buf[start].frame_gid, self.frame_stack):
+        # Find valid sequence start positions in one pass
+        valid_starts: list[int] = []
+        for i in range(n - seq_len + 1):
+            if not has_valid_start[i]:
                 continue
-
-            # 2. No episode boundary within the sequence
-            # (boundary at the last transition of the sequence is OK — it means
-            #  the sequence ends at episode end)
-            if any(is_boundary[start + i] for i in range(seq_len - 1)):
+            # No episode boundary within the sequence (except possibly at the end)
+            if any(is_boundary[i + j] for j in range(seq_len - 1)):
                 continue
+            # Frames must be consecutive
+            base_gid = buf[i].frame_gid
+            consecutive = all(
+                buf[i + j].frame_gid == base_gid + j for j in range(1, seq_len)
+            )
+            if consecutive:
+                valid_starts.append(i)
 
-            # 3. Frames are consecutive (global IDs increment by 1 each step)
-            frames_ok = True
-            for i in range(1, seq_len):
-                expected_gid = buf[start].frame_gid + i
-                if buf[start + i].frame_gid != expected_gid:
-                    frames_ok = False
-                    break
-            if not frames_ok:
-                continue
+        if not valid_starts:
+            return []
 
-            sequences.append(list(buf[start : start + seq_len]))
-
-        return sequences
+        # Sample from valid starts
+        picks = random.sample(valid_starts, min(batch_size, len(valid_starts)))
+        return [list(buf[s : s + seq_len]) for s in picks]
 
     def __len__(self) -> int:
         return len(self.buffer)

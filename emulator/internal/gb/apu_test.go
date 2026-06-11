@@ -9,19 +9,19 @@ import (
 // testAPUMMU is a minimal MMU stub for APU tests.
 type testAPUMMU struct{}
 
-func (m *testAPUMMU) Read(addr uint16) byte                        { return 0 }
-func (m *testAPUMMU) Write(addr uint16, val byte)                   {}
-func (m *testAPUMMU) Read16(addr uint16) uint16                     { return 0 }
-func (m *testAPUMMU) Write16(addr uint16, val uint16)               {}
-func (m *testAPUMMU) LoadROM(data []byte)                           {}
-func (m *testAPUMMU) LoadBootROM(data []byte)                        {}
-func (m *testAPUMMU) ReadIF() byte                                   { return 0 }
-func (m *testAPUMMU) ReadIE() byte                                   { return 0 }
-func (m *testAPUMMU) WriteIF(val byte)                               {}
-func (m *testAPUMMU) DMAStep(cycles int)                             {}
-func (m *testAPUMMU) SerialStep(cycles int)                          {}
-func (m *testAPUMMU) SetJoypadButtons(buttons byte)                  {}
-func (m *testAPUMMU) StepDevices(cycles int)                         {}
+func (m *testAPUMMU) Read(addr uint16) byte           { return 0 }
+func (m *testAPUMMU) Write(addr uint16, val byte)     {}
+func (m *testAPUMMU) Read16(addr uint16) uint16       { return 0 }
+func (m *testAPUMMU) Write16(addr uint16, val uint16) {}
+func (m *testAPUMMU) LoadROM(data []byte)             {}
+func (m *testAPUMMU) LoadBootROM(data []byte)         {}
+func (m *testAPUMMU) ReadIF() byte                    { return 0 }
+func (m *testAPUMMU) ReadIE() byte                    { return 0 }
+func (m *testAPUMMU) WriteIF(val byte)                {}
+func (m *testAPUMMU) DMAStep(cycles int)              {}
+func (m *testAPUMMU) SerialStep(cycles int)           {}
+func (m *testAPUMMU) SetJoypadButtons(buttons byte)   {}
+func (m *testAPUMMU) StepDevices(cycles int)          {}
 
 func TestAPUInitialState(t *testing.T) {
 	apu := NewAPU(&testAPUMMU{})

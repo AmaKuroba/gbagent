@@ -7,7 +7,6 @@ Reward: Screen novelty baseline + optional RAM scanners
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import gymnasium as gym

@@ -20,6 +20,7 @@ class ScannerConfig:
     length: int = 1
     novelty_decay: bool = False
     target_value: int = 0  # used by state_penalty
+    inverted: bool = False  # state_penalty: penalize when val != target instead of val == target
     penalty_per_step: float = -0.1  # used by state_penalty / stuck_penalty
     grace_period: int = 300  # steps before stuck_penalty kicks in
 

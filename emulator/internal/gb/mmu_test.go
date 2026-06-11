@@ -707,7 +707,7 @@ func TestOAMReadCorruption_PersistentCorruption(t *testing.T) {
 	ppu.Step(8) // advance dotCounter so row = 8/4 = 2, NOT row 1
 	// At row 2, the Read below will corrupt row 2 (not row 1 where FE08 lives).
 	// So let's read from an address in row 2 instead.
-	mmu.Write(0xFE28, 0x42) // set row 5 byte 0
+	mmu.Write(0xFE28, 0x42)          // set row 5 byte 0
 	corruptedVal := mmu.Read(0xFE28) // corrupts row 5 (0xFE28 is in row 5)
 
 	// The corrupted value should be different from original

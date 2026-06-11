@@ -21,14 +21,14 @@ func buildMBC5ROM(cType byte) []byte {
 	rom[0x139] = 'E'
 	rom[0x13A] = 'S'
 	rom[0x13B] = 'T'
-	rom[0x147] = cType       // cartridge type
-	rom[0x148] = 0x04        // ROM size: 512KB = 32 banks (2<<4)
-	rom[0x149] = 0x03        // RAM size: 32KB = 4 banks
+	rom[0x147] = cType // cartridge type
+	rom[0x148] = 0x04  // ROM size: 512KB = 32 banks (2<<4)
+	rom[0x149] = 0x03  // RAM size: 32KB = 4 banks
 	// Mark each bank with a unique pattern at its first byte (offset 0x4000 bank-relative)
 	for bank := 1; bank < 32; bank++ {
 		offset := bank * 0x4000
 		if offset < len(rom) {
-			rom[offset] = byte(bank)  // unique marker at start of bank N
+			rom[offset] = byte(bank) // unique marker at start of bank N
 		}
 	}
 	// Also put a marker at bank 0, offset 0x0000
@@ -40,10 +40,10 @@ func buildMBC5ROM(cType byte) []byte {
 
 func TestNewCartridge_MBC5TypeDetection(t *testing.T) {
 	types := []struct {
-		cType    byte
-		name     string
-		battery  bool
-		rumble   bool
+		cType   byte
+		name    string
+		battery bool
+		rumble  bool
 	}{
 		{0x19, "MBC5", false, false},
 		{0x1A, "MBC5+RAM", false, false},
@@ -398,8 +398,8 @@ func buildMBC2ROM(cType byte) []byte {
 	rom[0x139] = 'E'
 	rom[0x13A] = 'S'
 	rom[0x13B] = 'T'
-	rom[0x147] = cType       // cartridge type
-	rom[0x148] = 0x03        // ROM size: 256KB = 16 banks (2<<3)
+	rom[0x147] = cType // cartridge type
+	rom[0x148] = 0x03  // ROM size: 256KB = 16 banks (2<<3)
 	// Mark each bank with a unique pattern at its first byte (offset 0x4000 bank-relative)
 	for bank := 1; bank < 16; bank++ {
 		offset := bank * 0x4000
@@ -809,9 +809,9 @@ func buildMBC3ROM(cType byte) []byte {
 	rom[0x139] = 'E'
 	rom[0x13A] = 'S'
 	rom[0x13B] = 'T'
-	rom[0x147] = cType       // cartridge type
-	rom[0x148] = 0x04        // ROM size: 512KB = 32 banks (2<<4)
-	rom[0x149] = 0x03        // RAM size: 32KB = 4 banks
+	rom[0x147] = cType // cartridge type
+	rom[0x148] = 0x04  // ROM size: 512KB = 32 banks (2<<4)
+	rom[0x149] = 0x03  // RAM size: 32KB = 4 banks
 	// Mark each bank with a unique pattern at its first byte (offset 0x4000 bank-relative)
 	for bank := 1; bank < 32; bank++ {
 		offset := bank * 0x4000
@@ -1407,7 +1407,7 @@ func TestMBC3_RTC_SaveLoadRAM(t *testing.T) {
 	cart.Write(0x0000, 0x0A)
 
 	// Tick some time and write some RAM
-	cart.TickRTC(3661) // 1h 1m 1s
+	cart.TickRTC(3661)       // 1h 1m 1s
 	cart.Write(0x4000, 0x00) // RAM bank 0
 	cart.Write(0xA000, 0xDE)
 	cart.Write(0xA001, 0xAD)

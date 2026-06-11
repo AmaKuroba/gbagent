@@ -33,7 +33,7 @@ func (m *testMMU) Write16(addr uint16, val uint16) {
 	m.Write(addr+1, byte(val>>8))
 }
 
-func (m *testMMU) LoadROM(data []byte)          {}
+func (m *testMMU) LoadROM(data []byte)           {}
 func (m *testMMU) LoadBootROM(data []byte)       {}
 func (m *testMMU) ReadIF() byte                  { return m.ifReg }
 func (m *testMMU) ReadIE() byte                  { return 0 }
@@ -41,7 +41,7 @@ func (m *testMMU) WriteIF(val byte)              { m.ifReg = val }
 func (m *testMMU) DMAStep(cycles int)            {}
 func (m *testMMU) SerialStep(cycles int)         {}
 func (m *testMMU) SetJoypadButtons(buttons byte) {}
-func (m *testMMU) StepDevices(cycles int)          {}
+func (m *testMMU) StepDevices(cycles int)        {}
 
 func TestTimerDIVIncrement(t *testing.T) {
 	mmu := &testMMU{}

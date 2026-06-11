@@ -17,8 +17,8 @@ from typing import Any
 from PIL import Image
 
 try:
-    from websocket import WebSocketApp, WebSocketTimeoutException  # type: ignore[import-untyped]
     import websocket as ws_module  # type: ignore[import-untyped]
+    from websocket import WebSocketApp, WebSocketTimeoutException  # type: ignore[import-untyped]
 except ImportError:
     WebSocketApp = None  # type: ignore[misc]
     WebSocketTimeoutException = Exception

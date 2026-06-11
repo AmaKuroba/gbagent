@@ -29,10 +29,10 @@ type jsonrpcRequest struct {
 }
 
 type jsonrpcResponse struct {
-	JSONRPC string     `json:"jsonrpc"`
-	ID      any        `json:"id"`
-	Result  any        `json:"result,omitempty"`
-	Error   *rpcError  `json:"error,omitempty"`
+	JSONRPC string    `json:"jsonrpc"`
+	ID      any       `json:"id"`
+	Result  any       `json:"result,omitempty"`
+	Error   *rpcError `json:"error,omitempty"`
 }
 
 type rpcError struct {
@@ -75,7 +75,9 @@ func (h *jsonrpcHandler) Handle(req jsonrpcRequest) jsonrpcResponse {
 		dpad, btn := h.bridge.GetLastAction()
 		resp.Result = map[string]any{"dpad": dpad, "btn": btn}
 	case "set_takeover":
-		var params struct{ Value bool `json:"value"` }
+		var params struct {
+			Value bool `json:"value"`
+		}
 		if err := json.Unmarshal(req.Params, &params); err == nil {
 			h.bridge.SetTakeover(params.Value)
 		}
@@ -133,7 +135,9 @@ func (h *jsonrpcHandler) reset() {
 // handleResetState loads the saved start state, optionally at a custom path.
 // If no path param is given, falls back to --load-state (set on startup).
 func (h *jsonrpcHandler) handleResetState(req jsonrpcRequest, resp *jsonrpcResponse) {
-	var params struct{ Path string `json:"path,omitempty"` }
+	var params struct {
+		Path string `json:"path,omitempty"`
+	}
 	if req.Params != nil {
 		json.Unmarshal(req.Params, &params) //nolint: errcheck
 	}
@@ -165,7 +169,9 @@ func (h *jsonrpcHandler) handleGetScreen(req jsonrpcRequest, resp *jsonrpcRespon
 }
 
 func (h *jsonrpcHandler) handlePressButton(req jsonrpcRequest, resp *jsonrpcResponse) {
-	var params struct{ Button string `json:"button"` }
+	var params struct {
+		Button string `json:"button"`
+	}
 	if err := json.Unmarshal(req.Params, &params); err != nil || params.Button == "" {
 		resp.Error = &rpcError{Code: -32602, Message: "missing 'button' field"}
 		return
@@ -184,7 +190,9 @@ func (h *jsonrpcHandler) handlePressButton(req jsonrpcRequest, resp *jsonrpcResp
 }
 
 func (h *jsonrpcHandler) handleReleaseButton(req jsonrpcRequest, resp *jsonrpcResponse) {
-	var params struct{ Button string `json:"button"` }
+	var params struct {
+		Button string `json:"button"`
+	}
 	if err := json.Unmarshal(req.Params, &params); err != nil || params.Button == "" {
 		resp.Error = &rpcError{Code: -32602, Message: "missing 'button' field"}
 		return
@@ -203,7 +211,9 @@ func (h *jsonrpcHandler) handleReleaseButton(req jsonrpcRequest, resp *jsonrpcRe
 }
 
 func (h *jsonrpcHandler) handleReadRAM(req jsonrpcRequest, resp *jsonrpcResponse) {
-	var params struct{ Address int `json:"address"` }
+	var params struct {
+		Address int `json:"address"`
+	}
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		resp.Error = &rpcError{Code: -32602, Message: "missing 'address' field"}
 		return
@@ -252,7 +262,9 @@ func (h *jsonrpcHandler) handleGetState(req jsonrpcRequest, resp *jsonrpcRespons
 }
 
 func (h *jsonrpcHandler) handleSaveState(req jsonrpcRequest, resp *jsonrpcResponse) {
-	var params struct{ Path string `json:"path"` }
+	var params struct {
+		Path string `json:"path"`
+	}
 	if err := json.Unmarshal(req.Params, &params); err != nil || params.Path == "" {
 		resp.Error = &rpcError{Code: -32602, Message: "missing 'path' field"}
 		return
@@ -281,7 +293,9 @@ func (h *jsonrpcHandler) handleSaveState(req jsonrpcRequest, resp *jsonrpcRespon
 }
 
 func (h *jsonrpcHandler) handleLoadState(req jsonrpcRequest, resp *jsonrpcResponse) {
-	var params struct{ Path string `json:"path"` }
+	var params struct {
+		Path string `json:"path"`
+	}
 	if err := json.Unmarshal(req.Params, &params); err != nil || params.Path == "" {
 		resp.Error = &rpcError{Code: -32602, Message: "missing 'path' field"}
 		return
@@ -396,7 +410,10 @@ func handleWSJSONRPC(ws wsWriter, bridge *mcpBridge, startStatePath string) {
 			continue
 		}
 		resp := handler.Handle(req)
-		enc.Encode(resp) //nolint: errcheck
+		if err := enc.Encode(resp); err != nil {
+			log.Printf("jsonrpc ws: encode error: %v", err)
+			return
+		}
 	}
 }
 

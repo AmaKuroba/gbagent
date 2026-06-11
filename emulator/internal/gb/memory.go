@@ -322,9 +322,10 @@ func oamRowOffset(row int) int {
 // (R > 0, rows 1-19). Row 0 (objects 0-1 at FE00-FE07) is NOT corrupted.
 //
 // Read corruption first-word formula: b | (a & c)
-//   a = original value of the first 16-bit word in row R
-//   b = first 16-bit word in the preceding row (R-1)
-//   c = third 16-bit word in the preceding row (R-1)
+//
+//	a = original value of the first 16-bit word in row R
+//	b = first 16-bit word in the preceding row (R-1)
+//	c = third 16-bit word in the preceding row (R-1)
 //
 // The remaining three 16-bit words in row R are overwritten with the
 // corresponding words from the preceding row (R-1).
@@ -350,9 +351,10 @@ func applyOAMReadCorruption(oam []byte, row int) {
 // (R > 0, rows 1-19). Row 0 (objects 0-1 at FE00-FE07) is NOT corrupted.
 //
 // Write corruption first-word formula: ((a ^ c) & (b ^ c)) ^ c
-//   a = original value of the first 16-bit word in row R
-//   b = first 16-bit word in the preceding row (R-1)
-//   c = third 16-bit word in the preceding row (R-1)
+//
+//	a = original value of the first 16-bit word in row R
+//	b = first 16-bit word in the preceding row (R-1)
+//	c = third 16-bit word in the preceding row (R-1)
 //
 // The remaining three 16-bit words in row R are overwritten with the
 // corresponding words from the preceding row (R-1).

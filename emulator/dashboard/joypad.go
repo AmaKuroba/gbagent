@@ -50,12 +50,12 @@ func (j *Joypad) State() byte {
 // keyToButton maps keyboard key names (from the frontend) to Game Boy
 // joypad button bitmasks.
 var keyToButton = map[string]byte{
-	"w":     JoypadUp,
-	"s":     JoypadDown,
-	"a":     JoypadLeft,
-	"d":     JoypadRight,
-	"k":     JoypadA,
-	"j":     JoypadB,
-	"h":     JoypadStart,
-	"g":     JoypadSelect,
+	"w": JoypadUp,
+	"s": JoypadDown,
+	"a": JoypadLeft,
+	"d": JoypadRight,
+	"k": JoypadA,
+	"j": JoypadB,
+	"h": JoypadStart,
+	"g": JoypadSelect,
 }

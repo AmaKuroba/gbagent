@@ -8,8 +8,6 @@ type PPU interface {
 	GetState() PPUState
 }
 
-
-
 // PPU timing constants.
 const (
 	oamSearchCycles  = 80
@@ -55,9 +53,9 @@ const (
 
 // Sprite attribute flags.
 const (
-	spriteAttrPriority  = 1 << 7 // 0=above BG, 1=behind BG (if BG pixel != 0)
-	spriteAttrYFlip     = 1 << 6
-	spriteAttrXFlip     = 1 << 5
+	spriteAttrPriority   = 1 << 7 // 0=above BG, 1=behind BG (if BG pixel != 0)
+	spriteAttrYFlip      = 1 << 6
+	spriteAttrXFlip      = 1 << 5
 	spriteAttrPaletteDMG = 1 << 4 // 0=OBP0, 1=OBP1
 )
 
@@ -73,6 +71,7 @@ type spriteEntry struct {
 type PPUCore struct {
 	*PPUState
 	mmu MMU
+	bus *MemoryBus // cached *MemoryBus to avoid type assertions in hot paths
 
 	// Per-scanline sprite cache — rebuilt every scanline, not part of save state.
 	oamSprites []spriteEntry
@@ -82,6 +81,10 @@ var _ PPU = (*PPUCore)(nil)
 
 // NewPPU creates a new PPU instance.
 func NewPPU(mmu MMU) *PPUCore {
+	var bus *MemoryBus
+	if b, ok := mmu.(*MemoryBus); ok {
+		bus = b
+	}
 	ppu := &PPUCore{
 		PPUState: &PPUState{
 			LCDC: 0x00,
@@ -90,6 +93,7 @@ func NewPPU(mmu MMU) *PPUCore {
 			OBP1: 0xE4,
 		},
 		mmu: mmu,
+		bus: bus,
 	}
 	ppu.Reset()
 	return ppu
@@ -148,7 +152,7 @@ func (p *PPUCore) Step(cycles int) {
 			if p.mmu != nil {
 				if p.FirstFrameBlank {
 					// First frame after LCD enable — render blank (all white).
-				for x := range 160 {
+					for x := range 160 {
 						p.Screen[x][p.LY] = 0
 					}
 				} else {
@@ -194,14 +198,14 @@ func (p *PPUCore) updateMode() int {
 
 	var mode int
 	if p.LY < visibleScanlines {
-	switch {
-	case p.DotCounter < p.Mode2End:
-		mode = ppuModeOAM
-	case p.DotCounter < p.Mode3End:
-		mode = ppuModeVRAM
-	default:
-		mode = ppuModeHBlank
-	}
+		switch {
+		case p.DotCounter < p.Mode2End:
+			mode = ppuModeOAM
+		case p.DotCounter < p.Mode3End:
+			mode = ppuModeVRAM
+		default:
+			mode = ppuModeHBlank
+		}
 	} else {
 		mode = ppuModeVBlank
 	}
@@ -260,7 +264,7 @@ func (p *PPUCore) tileDataAddress(tileIndex byte) uint16 {
 }
 
 func (p *PPUCore) decodeTileRow(tileAddr uint16, row int) [8]byte {
-	bus := p.mmu.(*MemoryBus)
+	bus := p.bus
 	lo := bus.ReadVRAMDirect(tileAddr + uint16(row*2))
 	hi := bus.ReadVRAMDirect(tileAddr + uint16(row*2+1))
 	var pixels [8]byte
@@ -292,8 +296,7 @@ func (p *PPUCore) renderBackgroundScanline() {
 		tileMapX := (x + scrollX) / 8
 		tileMapY := (y + scrollY) / 8
 		tileMapAddr := mapBase + uint16((tileMapY%32)*32+(tileMapX%32))
-		bus := p.mmu.(*MemoryBus)
-		tileIndex := bus.ReadVRAMDirect(tileMapAddr)
+		tileIndex := p.bus.ReadVRAMDirect(tileMapAddr)
 		tileAddr := p.tileDataAddress(tileIndex)
 		tileRow := (y + scrollY) % 8
 		pixels := p.decodeTileRow(tileAddr, tileRow)
@@ -335,8 +338,7 @@ func (p *PPUCore) renderWindowScanline() {
 		windowTileX := winPixelX / 8
 		windowColInTile := winPixelX % 8
 		tileMapAddr := winMapBase + uint16((windowTileY%32)*32+(windowTileX%32))
-		bus := p.mmu.(*MemoryBus)
-		tileIndex := bus.ReadVRAMDirect(tileMapAddr)
+		tileIndex := p.bus.ReadVRAMDirect(tileMapAddr)
 		tileAddr := p.tileDataAddress(tileIndex)
 		pixels := p.decodeTileRow(tileAddr, windowRowInTile)
 		p.Screen[x][y] = p.applyPalette(pixels[windowColInTile], p.BGP)
@@ -359,7 +361,7 @@ func (p *PPUCore) scanOAM() {
 		// Use ReadOAMDirect to bypass MMU mode checking — the PPU's own OAM
 		// scan reads must not trigger the OAM corruption/bug (which only
 		// applies to CPU-initiated accesses during mode 2).
-		mmu := p.mmu.(*MemoryBus)
+		mmu := p.bus
 		y := mmu.ReadOAMDirect(base)
 		x := mmu.ReadOAMDirect(base + 1)
 
@@ -435,7 +437,7 @@ func (p *PPUCore) renderSprites() {
 			}
 
 			// Fetch pixel value from tile data using direct VRAM read.
-			bus := p.mmu.(*MemoryBus)
+			bus := p.bus
 			tileAddr := uint16(0x8000) + uint16(tileIndex)*16 + uint16(rowInTile)*2
 			lo := bus.ReadVRAMDirect(tileAddr)
 			hi := bus.ReadVRAMDirect(tileAddr + 1)

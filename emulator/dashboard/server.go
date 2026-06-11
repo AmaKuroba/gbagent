@@ -16,10 +16,10 @@ var staticFiles embed.FS
 
 // Server wraps the HTTP server and WebSocket hub for the Game Boy dashboard.
 type Server struct {
-	hub   *Hub
-	addr  string
-	mux   *http.ServeMux
-	input chan string
+	hub    *Hub
+	addr   string
+	mux    *http.ServeMux
+	input  chan string
 	joypad *Joypad
 
 	// TakeoverFunc is called when the dashboard sends a takeover toggle.

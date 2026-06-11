@@ -156,12 +156,12 @@ func (c *pulseChannel) clockEnvelope() {
 // The sweep modifies the channel frequency at 128 Hz intervals
 // (sequencer steps 2 and 6) based on NR10 register configuration.
 type sweepUnit struct {
-	shadowFreq    int  // shadow frequency register (captured on trigger)
-	sweepTimer    int  // ticks remaining (at 128 Hz) until next sweep
-	sweepEnabled  bool // sweep is active
-	sweepPeriod   int  // NR10 bits 6-4: sweep time (0-7, 0 is treated as 8)
-	sweepNegate   bool // NR10 bit 3: negate (true = subtraction)
-	sweepShift    int  // NR10 bits 2-0: shift value (0-7)
+	shadowFreq   int  // shadow frequency register (captured on trigger)
+	sweepTimer   int  // ticks remaining (at 128 Hz) until next sweep
+	sweepEnabled bool // sweep is active
+	sweepPeriod  int  // NR10 bits 6-4: sweep time (0-7, 0 is treated as 8)
+	sweepNegate  bool // NR10 bit 3: negate (true = subtraction)
+	sweepShift   int  // NR10 bits 2-0: shift value (0-7)
 }
 
 // noiseChannel implements the Game Boy noise channel (CH4).
@@ -256,10 +256,10 @@ func (c *noiseChannel) getOutput() int {
 // waveChannel implements the Game Boy wave channel (CH3).
 // Uses wave pattern RAM for sample values with configurable output level.
 type waveChannel struct {
-	frequency   int  // 11-bit raw frequency (0-2047)
-	freqAccum   int  // T-cycle accumulator for frequency period counter
-	samplePos   int  // current position in the 32-sample wave pattern (0-31)
-	outputLevel int  // cached from NR32 bits 5-6: 0=100%, 1=50%, 2=25%, 3=0%
+	frequency   int // 11-bit raw frequency (0-2047)
+	freqAccum   int // T-cycle accumulator for frequency period counter
+	samplePos   int // current position in the 32-sample wave pattern (0-31)
+	outputLevel int // cached from NR32 bits 5-6: 0=100%, 1=50%, 2=25%, 3=0%
 }
 
 // period returns the frequency period in T-cycles for the wave channel.
@@ -307,10 +307,9 @@ func (c *waveChannel) getSample(waveRAM [16]byte) int {
 	}
 }
 
-
 type APU struct {
 	*APUState
-	mmu  MMU
+	mmu MMU
 
 	// Pulse channel state for CH1 and CH2 (logic only — state lives in APUState).
 	ch1 *pulseChannel
@@ -792,8 +791,8 @@ func (a *APU) GetSampleCh4() int {
 func (a *APU) getMixedSample() (int16, int16) {
 	nr50 := a.Regs[regNR50]
 	nr51 := a.Regs[regNR51]
-	leftVol := int(nr50>>4&7) + 1  // 1-8
-	rightVol := int(nr50&7) + 1    // 1-8
+	leftVol := int(nr50>>4&7) + 1 // 1-8
+	rightVol := int(nr50&7) + 1   // 1-8
 
 	// Get raw channel samples (0-15 each).
 	ch1S := a.GetSampleCh1()
@@ -838,8 +837,8 @@ func (a *APU) getMixedSample() (int16, int16) {
 
 	// Convert to 16-bit signed: map [0..60] to [-32768..32767].
 	// 60 → ~32767, 0 → ~-32768, 30 → 0
-	ls := int32(leftOut) * 1092 - 32768
-	rs := int32(rightOut) * 1092 - 32768
+	ls := int32(leftOut)*1092 - 32768
+	rs := int32(rightOut)*1092 - 32768
 
 	// Clamp to 16-bit range.
 	if ls > 32767 {
@@ -878,7 +877,7 @@ func (a *APU) getMixedSample() (int16, int16) {
 		hr = -32768
 	}
 
-	a.HPIntoL = fl   // x[n-1] for next frame
+	a.HPIntoL = fl // x[n-1] for next frame
 	a.HPOutL = hl  // y[n-1] for next frame
 	a.HPIntoR = fr
 	a.HPOutR = hr

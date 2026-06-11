@@ -104,34 +104,44 @@ func initLDr8r8() {
 func initLD16() {
 	// LD r16, d16: 12 cycles, M2-M3 read imm
 	mainHandler[0x01] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		c.BC = uint16(lo) | uint16(hi)<<8
 		return 12, nil
 	}
 	mainHandler[0x11] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		c.DE = uint16(lo) | uint16(hi)<<8
 		return 12, nil
 	}
 	mainHandler[0x21] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		c.HL = uint16(lo) | uint16(hi)<<8
 		return 12, nil
 	}
 	mainHandler[0x31] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		c.SP = uint16(lo) | uint16(hi)<<8
 		return 12, nil
 	}
 
 	// LD (a16),SP: 20 cycles, M2-M3 addr, M4-M5 writes
 	mainHandler[0x08] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		addr := uint16(lo) | uint16(hi)<<8
 		c.MMU.Write(addr, byte(c.SP))
 		c.stepDevices(4)
@@ -142,89 +152,114 @@ func initLD16() {
 
 	// LD (BC),A / LD (DE),A: 8 cycles, M2 write
 	mainHandler[0x02] = func(c *Core) (int, error) {
-		c.MMU.Write(c.BC, c.A()); c.stepDevices(4)
+		c.MMU.Write(c.BC, c.A())
+		c.stepDevices(4)
 		return 8, nil
 	}
 	mainHandler[0x12] = func(c *Core) (int, error) {
-		c.MMU.Write(c.DE, c.A()); c.stepDevices(4)
+		c.MMU.Write(c.DE, c.A())
+		c.stepDevices(4)
 		return 8, nil
 	}
 
 	// LD A,(BC) / LD A,(DE): 8 cycles, M2 read
 	mainHandler[0x0A] = func(c *Core) (int, error) {
-		c.setA(c.MMU.Read(c.BC)); c.stepDevices(4)
+		c.setA(c.MMU.Read(c.BC))
+		c.stepDevices(4)
 		return 8, nil
 	}
 	mainHandler[0x1A] = func(c *Core) (int, error) {
-		c.setA(c.MMU.Read(c.DE)); c.stepDevices(4)
+		c.setA(c.MMU.Read(c.DE))
+		c.stepDevices(4)
 		return 8, nil
 	}
 
 	// LDI (HL),A / LDD (HL),A: 8 cycles, M2 write + inc/dec
 	mainHandler[0x22] = func(c *Core) (int, error) {
-		c.MMU.Write(c.HL, c.A()); c.HL++; c.stepDevices(4)
+		c.MMU.Write(c.HL, c.A())
+		c.HL++
+		c.stepDevices(4)
 		return 8, nil
 	}
 	mainHandler[0x32] = func(c *Core) (int, error) {
-		c.MMU.Write(c.HL, c.A()); c.HL--; c.stepDevices(4)
+		c.MMU.Write(c.HL, c.A())
+		c.HL--
+		c.stepDevices(4)
 		return 8, nil
 	}
 
 	// LDI A,(HL) / LDD A,(HL): 8 cycles, M2 read + inc/dec
 	mainHandler[0x2A] = func(c *Core) (int, error) {
-		c.setA(c.MMU.Read(c.HL)); c.HL++; c.stepDevices(4)
+		c.setA(c.MMU.Read(c.HL))
+		c.HL++
+		c.stepDevices(4)
 		return 8, nil
 	}
 	mainHandler[0x3A] = func(c *Core) (int, error) {
-		c.setA(c.MMU.Read(c.HL)); c.HL--; c.stepDevices(4)
+		c.setA(c.MMU.Read(c.HL))
+		c.HL--
+		c.stepDevices(4)
 		return 8, nil
 	}
 
 	// LDH (a8),A: 12 cycles, M2 read imm, M3 write
 	mainHandler[0xE0] = func(c *Core) (int, error) {
-		off := c.fetch8(); c.stepDevices(4)
-		c.MMU.Write(0xFF00|uint16(off), c.A()); c.stepDevices(4)
+		off := c.fetch8()
+		c.stepDevices(4)
+		c.MMU.Write(0xFF00|uint16(off), c.A())
+		c.stepDevices(4)
 		return 12, nil
 	}
 
 	// LDH A,(a8): 12 cycles, M2 read imm, M3 read
 	mainHandler[0xF0] = func(c *Core) (int, error) {
-		off := c.fetch8(); c.stepDevices(4)
-		c.setA(c.MMU.Read(0xFF00 | uint16(off))); c.stepDevices(4)
+		off := c.fetch8()
+		c.stepDevices(4)
+		c.setA(c.MMU.Read(0xFF00 | uint16(off)))
+		c.stepDevices(4)
 		return 12, nil
 	}
 
 	// LDH (C),A: 8 cycles, M2 write
 	mainHandler[0xE2] = func(c *Core) (int, error) {
-		c.MMU.Write(0xFF00|uint16(c.C()), c.A()); c.stepDevices(4)
+		c.MMU.Write(0xFF00|uint16(c.C()), c.A())
+		c.stepDevices(4)
 		return 8, nil
 	}
 
 	// LDH A,(C): 8 cycles, M2 read
 	mainHandler[0xF2] = func(c *Core) (int, error) {
-		c.setA(c.MMU.Read(0xFF00 | uint16(c.C()))); c.stepDevices(4)
+		c.setA(c.MMU.Read(0xFF00 | uint16(c.C())))
+		c.stepDevices(4)
 		return 8, nil
 	}
 
 	// LD (a16),A: 16 cycles, M2-M3 addr, M4 write
 	mainHandler[0xEA] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
-		c.MMU.Write(uint16(lo)|uint16(hi)<<8, c.A()); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
+		c.MMU.Write(uint16(lo)|uint16(hi)<<8, c.A())
+		c.stepDevices(4)
 		return 16, nil
 	}
 
 	// LD A,(a16): 16 cycles, M2-M3 addr, M4 read
 	mainHandler[0xFA] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
-		c.setA(c.MMU.Read(uint16(lo) | uint16(hi)<<8)); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
+		c.setA(c.MMU.Read(uint16(lo) | uint16(hi)<<8))
+		c.stepDevices(4)
 		return 16, nil
 	}
 
 	// LD SP,HL (0xF9): 8 cycles, M2 internal
 	mainHandler[0xF9] = func(c *Core) (int, error) {
-		c.SP = c.HL; c.stepDevices(4)
+		c.SP = c.HL
+		c.stepDevices(4)
 		return 8, nil
 	}
 
@@ -251,30 +286,42 @@ func initPUSHPOP() {
 		switch r {
 		case 0:
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.SP -= 2; c.stepDevices(4)
-				c.MMU.Write(c.SP, byte(c.BC)); c.stepDevices(4)
-				c.MMU.Write(c.SP+1, byte(c.BC>>8)); c.stepDevices(4)
+				c.SP -= 2
+				c.stepDevices(4)
+				c.MMU.Write(c.SP, byte(c.BC))
+				c.stepDevices(4)
+				c.MMU.Write(c.SP+1, byte(c.BC>>8))
+				c.stepDevices(4)
 				return 16, nil
 			}
 		case 1:
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.SP -= 2; c.stepDevices(4)
-				c.MMU.Write(c.SP, byte(c.DE)); c.stepDevices(4)
-				c.MMU.Write(c.SP+1, byte(c.DE>>8)); c.stepDevices(4)
+				c.SP -= 2
+				c.stepDevices(4)
+				c.MMU.Write(c.SP, byte(c.DE))
+				c.stepDevices(4)
+				c.MMU.Write(c.SP+1, byte(c.DE>>8))
+				c.stepDevices(4)
 				return 16, nil
 			}
 		case 2:
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.SP -= 2; c.stepDevices(4)
-				c.MMU.Write(c.SP, byte(c.HL)); c.stepDevices(4)
-				c.MMU.Write(c.SP+1, byte(c.HL>>8)); c.stepDevices(4)
+				c.SP -= 2
+				c.stepDevices(4)
+				c.MMU.Write(c.SP, byte(c.HL))
+				c.stepDevices(4)
+				c.MMU.Write(c.SP+1, byte(c.HL>>8))
+				c.stepDevices(4)
 				return 16, nil
 			}
 		case 3:
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.SP -= 2; c.stepDevices(4)
-				c.MMU.Write(c.SP, byte(c.AF)); c.stepDevices(4)
-				c.MMU.Write(c.SP+1, byte(c.AF>>8)); c.stepDevices(4)
+				c.SP -= 2
+				c.stepDevices(4)
+				c.MMU.Write(c.SP, byte(c.AF))
+				c.stepDevices(4)
+				c.MMU.Write(c.SP+1, byte(c.AF>>8))
+				c.stepDevices(4)
 				return 16, nil
 			}
 		}
@@ -286,52 +333,72 @@ func initPUSHPOP() {
 		switch r {
 		case 0:
 			mainHandler[op] = func(c *Core) (int, error) {
-				lo := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-				hi := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
+				lo := c.MMU.Read(c.SP)
+				c.SP++
+				c.stepDevices(4)
+				hi := c.MMU.Read(c.SP)
+				c.SP++
+				c.stepDevices(4)
 				c.BC = uint16(lo) | uint16(hi)<<8
 				return 12, nil
 			}
 		case 1:
 			mainHandler[op] = func(c *Core) (int, error) {
-				lo := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-				hi := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
+				lo := c.MMU.Read(c.SP)
+				c.SP++
+				c.stepDevices(4)
+				hi := c.MMU.Read(c.SP)
+				c.SP++
+				c.stepDevices(4)
 				c.DE = uint16(lo) | uint16(hi)<<8
 				return 12, nil
 			}
 		case 2:
 			mainHandler[op] = func(c *Core) (int, error) {
-				lo := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-				hi := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
+				lo := c.MMU.Read(c.SP)
+				c.SP++
+				c.stepDevices(4)
+				hi := c.MMU.Read(c.SP)
+				c.SP++
+				c.stepDevices(4)
 				c.HL = uint16(lo) | uint16(hi)<<8
 				return 12, nil
 			}
 		case 3:
 			mainHandler[op] = func(c *Core) (int, error) {
-				lo := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-				hi := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
+				lo := c.MMU.Read(c.SP)
+				c.SP++
+				c.stepDevices(4)
+				hi := c.MMU.Read(c.SP)
+				c.SP++
+				c.stepDevices(4)
 				c.AF = (uint16(lo) | uint16(hi)<<8) & 0xFFF0
 				return 12, nil
 			}
 		}
 	}
 }
+
 // ===== 8-bit ALU =====
 func initALU() {
 	for i := range 8 {
 		op, r := 0x80+i, i
 		if r == 6 {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.addA(c.MMU.Read(c.HL)); c.stepDevices(4)
+				c.addA(c.MMU.Read(c.HL))
+				c.stepDevices(4)
 				return 8, nil
 			}
 		} else {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.addA(c.readReg8(r)); return 4, nil
+				c.addA(c.readReg8(r))
+				return 4, nil
 			}
 		}
 	}
 	mainHandler[0xC6] = func(c *Core) (int, error) {
-		c.addA(c.fetch8()); c.stepDevices(4)
+		c.addA(c.fetch8())
+		c.stepDevices(4)
 		return 8, nil
 	}
 
@@ -340,17 +407,20 @@ func initALU() {
 		op, r := 0x88+i, i
 		if r == 6 {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.adcA(c.MMU.Read(c.HL)); c.stepDevices(4)
+				c.adcA(c.MMU.Read(c.HL))
+				c.stepDevices(4)
 				return 8, nil
 			}
 		} else {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.adcA(c.readReg8(r)); return 4, nil
+				c.adcA(c.readReg8(r))
+				return 4, nil
 			}
 		}
 	}
 	mainHandler[0xCE] = func(c *Core) (int, error) {
-		c.adcA(c.fetch8()); c.stepDevices(4)
+		c.adcA(c.fetch8())
+		c.stepDevices(4)
 		return 8, nil
 	}
 
@@ -359,17 +429,20 @@ func initALU() {
 		op, r := 0x90+i, i
 		if r == 6 {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.subA(c.MMU.Read(c.HL)); c.stepDevices(4)
+				c.subA(c.MMU.Read(c.HL))
+				c.stepDevices(4)
 				return 8, nil
 			}
 		} else {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.subA(c.readReg8(r)); return 4, nil
+				c.subA(c.readReg8(r))
+				return 4, nil
 			}
 		}
 	}
 	mainHandler[0xD6] = func(c *Core) (int, error) {
-		c.subA(c.fetch8()); c.stepDevices(4)
+		c.subA(c.fetch8())
+		c.stepDevices(4)
 		return 8, nil
 	}
 
@@ -378,17 +451,20 @@ func initALU() {
 		op, r := 0x98+i, i
 		if r == 6 {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.sbcA(c.MMU.Read(c.HL)); c.stepDevices(4)
+				c.sbcA(c.MMU.Read(c.HL))
+				c.stepDevices(4)
 				return 8, nil
 			}
 		} else {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.sbcA(c.readReg8(r)); return 4, nil
+				c.sbcA(c.readReg8(r))
+				return 4, nil
 			}
 		}
 	}
 	mainHandler[0xDE] = func(c *Core) (int, error) {
-		c.sbcA(c.fetch8()); c.stepDevices(4)
+		c.sbcA(c.fetch8())
+		c.stepDevices(4)
 		return 8, nil
 	}
 
@@ -397,17 +473,20 @@ func initALU() {
 		op, r := 0xA0+i, i
 		if r == 6 {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.andA(c.MMU.Read(c.HL)); c.stepDevices(4)
+				c.andA(c.MMU.Read(c.HL))
+				c.stepDevices(4)
 				return 8, nil
 			}
 		} else {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.andA(c.readReg8(r)); return 4, nil
+				c.andA(c.readReg8(r))
+				return 4, nil
 			}
 		}
 	}
 	mainHandler[0xE6] = func(c *Core) (int, error) {
-		c.andA(c.fetch8()); c.stepDevices(4)
+		c.andA(c.fetch8())
+		c.stepDevices(4)
 		return 8, nil
 	}
 
@@ -416,17 +495,20 @@ func initALU() {
 		op, r := 0xB0+i, i
 		if r == 6 {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.orA(c.MMU.Read(c.HL)); c.stepDevices(4)
+				c.orA(c.MMU.Read(c.HL))
+				c.stepDevices(4)
 				return 8, nil
 			}
 		} else {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.orA(c.readReg8(r)); return 4, nil
+				c.orA(c.readReg8(r))
+				return 4, nil
 			}
 		}
 	}
 	mainHandler[0xF6] = func(c *Core) (int, error) {
-		c.orA(c.fetch8()); c.stepDevices(4)
+		c.orA(c.fetch8())
+		c.stepDevices(4)
 		return 8, nil
 	}
 
@@ -435,17 +517,20 @@ func initALU() {
 		op, r := 0xA8+i, i
 		if r == 6 {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.xorA(c.MMU.Read(c.HL)); c.stepDevices(4)
+				c.xorA(c.MMU.Read(c.HL))
+				c.stepDevices(4)
 				return 8, nil
 			}
 		} else {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.xorA(c.readReg8(r)); return 4, nil
+				c.xorA(c.readReg8(r))
+				return 4, nil
 			}
 		}
 	}
 	mainHandler[0xEE] = func(c *Core) (int, error) {
-		c.xorA(c.fetch8()); c.stepDevices(4)
+		c.xorA(c.fetch8())
+		c.stepDevices(4)
 		return 8, nil
 	}
 
@@ -454,17 +539,20 @@ func initALU() {
 		op, r := 0xB8+i, i
 		if r == 6 {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.cpA(c.MMU.Read(c.HL)); c.stepDevices(4)
+				c.cpA(c.MMU.Read(c.HL))
+				c.stepDevices(4)
 				return 8, nil
 			}
 		} else {
 			mainHandler[op] = func(c *Core) (int, error) {
-				c.cpA(c.readReg8(r)); return 4, nil
+				c.cpA(c.readReg8(r))
+				return 4, nil
 			}
 		}
 	}
 	mainHandler[0xFE] = func(c *Core) (int, error) {
-		c.cpA(c.fetch8()); c.stepDevices(4)
+		c.cpA(c.fetch8())
+		c.stepDevices(4)
 		return 8, nil
 	}
 }
@@ -476,8 +564,10 @@ func initINCDEC() {
 		if r == 6 {
 			// INC (HL): 12 cycles, M2 read, M3 write
 			mainHandler[op] = func(c *Core) (int, error) {
-				val := c.MMU.Read(c.HL); c.stepDevices(4)
-				c.MMU.Write(c.HL, c.inc8(val)); c.stepDevices(4)
+				val := c.MMU.Read(c.HL)
+				c.stepDevices(4)
+				c.MMU.Write(c.HL, c.inc8(val))
+				c.stepDevices(4)
 				return 12, nil
 			}
 		} else {
@@ -494,8 +584,10 @@ func initINCDEC() {
 		if r == 6 {
 			// DEC (HL): 12 cycles, M2 read, M3 write
 			mainHandler[op] = func(c *Core) (int, error) {
-				val := c.MMU.Read(c.HL); c.stepDevices(4)
-				c.MMU.Write(c.HL, c.dec8(val)); c.stepDevices(4)
+				val := c.MMU.Read(c.HL)
+				c.stepDevices(4)
+				c.MMU.Write(c.HL, c.dec8(val))
+				c.stepDevices(4)
 				return 12, nil
 			}
 		} else {
@@ -548,8 +640,10 @@ func initControlFlow() {
 
 	// JP a16 (0xC3): 16 cycles, M2-M3 addr, M4 set PC
 	mainHandler[0xC3] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		c.PC = uint16(lo) | uint16(hi)<<8
 		c.stepDevices(4)
 		return 16, nil
@@ -560,8 +654,10 @@ func initControlFlow() {
 
 	// JP cc,a16
 	mainHandler[0xC2] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		if !c.flagZ() {
 			c.PC = uint16(lo) | uint16(hi)<<8
 			c.stepDevices(4)
@@ -570,8 +666,10 @@ func initControlFlow() {
 		return 12, nil
 	}
 	mainHandler[0xCA] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		if c.flagZ() {
 			c.PC = uint16(lo) | uint16(hi)<<8
 			c.stepDevices(4)
@@ -580,8 +678,10 @@ func initControlFlow() {
 		return 12, nil
 	}
 	mainHandler[0xD2] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		if !c.flagC() {
 			c.PC = uint16(lo) | uint16(hi)<<8
 			c.stepDevices(4)
@@ -590,8 +690,10 @@ func initControlFlow() {
 		return 12, nil
 	}
 	mainHandler[0xDA] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		if c.flagC() {
 			c.PC = uint16(lo) | uint16(hi)<<8
 			c.stepDevices(4)
@@ -602,40 +704,50 @@ func initControlFlow() {
 
 	// JR r8 (0x18): 12 cycles, M2 read imm, M3 add
 	mainHandler[0x18] = func(c *Core) (int, error) {
-		off := int8(c.fetch8()); c.stepDevices(4)
-		c.PC = uint16(int32(c.PC) + int32(off)); c.stepDevices(4)
+		off := int8(c.fetch8())
+		c.stepDevices(4)
+		c.PC = uint16(int32(c.PC) + int32(off))
+		c.stepDevices(4)
 		return 12, nil
 	}
 
 	// JR cc,r8
 	mainHandler[0x20] = func(c *Core) (int, error) {
-		off := int8(c.fetch8()); c.stepDevices(4)
+		off := int8(c.fetch8())
+		c.stepDevices(4)
 		if !c.flagZ() {
-			c.PC = uint16(int32(c.PC) + int32(off)); c.stepDevices(4)
+			c.PC = uint16(int32(c.PC) + int32(off))
+			c.stepDevices(4)
 			return 12, nil
 		}
 		return 8, nil
 	}
 	mainHandler[0x28] = func(c *Core) (int, error) {
-		off := int8(c.fetch8()); c.stepDevices(4)
+		off := int8(c.fetch8())
+		c.stepDevices(4)
 		if c.flagZ() {
-			c.PC = uint16(int32(c.PC) + int32(off)); c.stepDevices(4)
+			c.PC = uint16(int32(c.PC) + int32(off))
+			c.stepDevices(4)
 			return 12, nil
 		}
 		return 8, nil
 	}
 	mainHandler[0x30] = func(c *Core) (int, error) {
-		off := int8(c.fetch8()); c.stepDevices(4)
+		off := int8(c.fetch8())
+		c.stepDevices(4)
 		if !c.flagC() {
-			c.PC = uint16(int32(c.PC) + int32(off)); c.stepDevices(4)
+			c.PC = uint16(int32(c.PC) + int32(off))
+			c.stepDevices(4)
 			return 12, nil
 		}
 		return 8, nil
 	}
 	mainHandler[0x38] = func(c *Core) (int, error) {
-		off := int8(c.fetch8()); c.stepDevices(4)
+		off := int8(c.fetch8())
+		c.stepDevices(4)
 		if c.flagC() {
-			c.PC = uint16(int32(c.PC) + int32(off)); c.stepDevices(4)
+			c.PC = uint16(int32(c.PC) + int32(off))
+			c.stepDevices(4)
 			return 12, nil
 		}
 		return 8, nil
@@ -643,64 +755,89 @@ func initControlFlow() {
 
 	// CALL a16 (0xCD): 24 cycles, M2-M3 addr, M4 SP-=2, M5 write low, M6 write high
 	mainHandler[0xCD] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		addr := uint16(lo) | uint16(hi)<<8
-		c.SP -= 2; c.stepDevices(4)
-		c.MMU.Write(c.SP, byte(c.PC)); c.stepDevices(4)
-		c.MMU.Write(c.SP+1, byte(c.PC>>8)); c.stepDevices(4)
+		c.SP -= 2
+		c.stepDevices(4)
+		c.MMU.Write(c.SP, byte(c.PC))
+		c.stepDevices(4)
+		c.MMU.Write(c.SP+1, byte(c.PC>>8))
+		c.stepDevices(4)
 		c.PC = addr
 		return 24, nil
 	}
 
 	// CALL cc,a16
 	mainHandler[0xC4] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		if !c.flagZ() {
 			addr := uint16(lo) | uint16(hi)<<8
-			c.SP -= 2; c.stepDevices(4)
-			c.MMU.Write(c.SP, byte(c.PC)); c.stepDevices(4)
-			c.MMU.Write(c.SP+1, byte(c.PC>>8)); c.stepDevices(4)
+			c.SP -= 2
+			c.stepDevices(4)
+			c.MMU.Write(c.SP, byte(c.PC))
+			c.stepDevices(4)
+			c.MMU.Write(c.SP+1, byte(c.PC>>8))
+			c.stepDevices(4)
 			c.PC = addr
 			return 24, nil
 		}
 		return 12, nil
 	}
 	mainHandler[0xCC] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		if c.flagZ() {
 			addr := uint16(lo) | uint16(hi)<<8
-			c.SP -= 2; c.stepDevices(4)
-			c.MMU.Write(c.SP, byte(c.PC)); c.stepDevices(4)
-			c.MMU.Write(c.SP+1, byte(c.PC>>8)); c.stepDevices(4)
+			c.SP -= 2
+			c.stepDevices(4)
+			c.MMU.Write(c.SP, byte(c.PC))
+			c.stepDevices(4)
+			c.MMU.Write(c.SP+1, byte(c.PC>>8))
+			c.stepDevices(4)
 			c.PC = addr
 			return 24, nil
 		}
 		return 12, nil
 	}
 	mainHandler[0xD4] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		if !c.flagC() {
 			addr := uint16(lo) | uint16(hi)<<8
-			c.SP -= 2; c.stepDevices(4)
-			c.MMU.Write(c.SP, byte(c.PC)); c.stepDevices(4)
-			c.MMU.Write(c.SP+1, byte(c.PC>>8)); c.stepDevices(4)
+			c.SP -= 2
+			c.stepDevices(4)
+			c.MMU.Write(c.SP, byte(c.PC))
+			c.stepDevices(4)
+			c.MMU.Write(c.SP+1, byte(c.PC>>8))
+			c.stepDevices(4)
 			c.PC = addr
 			return 24, nil
 		}
 		return 12, nil
 	}
 	mainHandler[0xDC] = func(c *Core) (int, error) {
-		lo := c.fetch8(); c.stepDevices(4)
-		hi := c.fetch8(); c.stepDevices(4)
+		lo := c.fetch8()
+		c.stepDevices(4)
+		hi := c.fetch8()
+		c.stepDevices(4)
 		if c.flagC() {
 			addr := uint16(lo) | uint16(hi)<<8
-			c.SP -= 2; c.stepDevices(4)
-			c.MMU.Write(c.SP, byte(c.PC)); c.stepDevices(4)
-			c.MMU.Write(c.SP+1, byte(c.PC>>8)); c.stepDevices(4)
+			c.SP -= 2
+			c.stepDevices(4)
+			c.MMU.Write(c.SP, byte(c.PC))
+			c.stepDevices(4)
+			c.MMU.Write(c.SP+1, byte(c.PC>>8))
+			c.stepDevices(4)
 			c.PC = addr
 			return 24, nil
 		}
@@ -709,9 +846,14 @@ func initControlFlow() {
 
 	// RET (0xC9): 16 cycles, M2 read low, M3 read high, M4 set PC
 	mainHandler[0xC9] = func(c *Core) (int, error) {
-		lo := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-		hi := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-		c.PC = uint16(lo) | uint16(hi)<<8; c.stepDevices(4)
+		lo := c.MMU.Read(c.SP)
+		c.SP++
+		c.stepDevices(4)
+		hi := c.MMU.Read(c.SP)
+		c.SP++
+		c.stepDevices(4)
+		c.PC = uint16(lo) | uint16(hi)<<8
+		c.stepDevices(4)
 		return 16, nil
 	}
 
@@ -719,9 +861,14 @@ func initControlFlow() {
 	mainHandler[0xC0] = func(c *Core) (int, error) {
 		if !c.flagZ() {
 			c.stepDevices(4) // M2: condition met, prepare
-			lo := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-			hi := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-			c.PC = uint16(lo) | uint16(hi)<<8; c.stepDevices(4)
+			lo := c.MMU.Read(c.SP)
+			c.SP++
+			c.stepDevices(4)
+			hi := c.MMU.Read(c.SP)
+			c.SP++
+			c.stepDevices(4)
+			c.PC = uint16(lo) | uint16(hi)<<8
+			c.stepDevices(4)
 			return 20, nil
 		}
 		c.stepDevices(4) // M2: condition not met
@@ -730,9 +877,14 @@ func initControlFlow() {
 	mainHandler[0xC8] = func(c *Core) (int, error) {
 		if c.flagZ() {
 			c.stepDevices(4)
-			lo := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-			hi := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-			c.PC = uint16(lo) | uint16(hi)<<8; c.stepDevices(4)
+			lo := c.MMU.Read(c.SP)
+			c.SP++
+			c.stepDevices(4)
+			hi := c.MMU.Read(c.SP)
+			c.SP++
+			c.stepDevices(4)
+			c.PC = uint16(lo) | uint16(hi)<<8
+			c.stepDevices(4)
 			return 20, nil
 		}
 		c.stepDevices(4)
@@ -741,9 +893,14 @@ func initControlFlow() {
 	mainHandler[0xD0] = func(c *Core) (int, error) {
 		if !c.flagC() {
 			c.stepDevices(4)
-			lo := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-			hi := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-			c.PC = uint16(lo) | uint16(hi)<<8; c.stepDevices(4)
+			lo := c.MMU.Read(c.SP)
+			c.SP++
+			c.stepDevices(4)
+			hi := c.MMU.Read(c.SP)
+			c.SP++
+			c.stepDevices(4)
+			c.PC = uint16(lo) | uint16(hi)<<8
+			c.stepDevices(4)
 			return 20, nil
 		}
 		c.stepDevices(4)
@@ -752,9 +909,14 @@ func initControlFlow() {
 	mainHandler[0xD8] = func(c *Core) (int, error) {
 		if c.flagC() {
 			c.stepDevices(4)
-			lo := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-			hi := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-			c.PC = uint16(lo) | uint16(hi)<<8; c.stepDevices(4)
+			lo := c.MMU.Read(c.SP)
+			c.SP++
+			c.stepDevices(4)
+			hi := c.MMU.Read(c.SP)
+			c.SP++
+			c.stepDevices(4)
+			c.PC = uint16(lo) | uint16(hi)<<8
+			c.stepDevices(4)
 			return 20, nil
 		}
 		c.stepDevices(4)
@@ -763,8 +925,12 @@ func initControlFlow() {
 
 	// RETI (0xD9): 16 cycles, same as RET but re-enables IME
 	mainHandler[0xD9] = func(c *Core) (int, error) {
-		lo := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
-		hi := c.MMU.Read(c.SP); c.SP++; c.stepDevices(4)
+		lo := c.MMU.Read(c.SP)
+		c.SP++
+		c.stepDevices(4)
+		hi := c.MMU.Read(c.SP)
+		c.SP++
+		c.stepDevices(4)
 		c.PC = uint16(lo) | uint16(hi)<<8
 		c.IME = true
 		c.stepDevices(4)
@@ -773,58 +939,82 @@ func initControlFlow() {
 
 	// RST n: 16 cycles, same structure as PUSH
 	mainHandler[0xC7] = func(c *Core) (int, error) {
-		c.SP -= 2; c.stepDevices(4)
-		c.MMU.Write(c.SP, byte(c.PC)); c.stepDevices(4)
-		c.MMU.Write(c.SP+1, byte(c.PC>>8)); c.stepDevices(4)
+		c.SP -= 2
+		c.stepDevices(4)
+		c.MMU.Write(c.SP, byte(c.PC))
+		c.stepDevices(4)
+		c.MMU.Write(c.SP+1, byte(c.PC>>8))
+		c.stepDevices(4)
 		c.PC = 0x00
 		return 16, nil
 	}
 	mainHandler[0xCF] = func(c *Core) (int, error) {
-		c.SP -= 2; c.stepDevices(4)
-		c.MMU.Write(c.SP, byte(c.PC)); c.stepDevices(4)
-		c.MMU.Write(c.SP+1, byte(c.PC>>8)); c.stepDevices(4)
+		c.SP -= 2
+		c.stepDevices(4)
+		c.MMU.Write(c.SP, byte(c.PC))
+		c.stepDevices(4)
+		c.MMU.Write(c.SP+1, byte(c.PC>>8))
+		c.stepDevices(4)
 		c.PC = 0x08
 		return 16, nil
 	}
 	mainHandler[0xD7] = func(c *Core) (int, error) {
-		c.SP -= 2; c.stepDevices(4)
-		c.MMU.Write(c.SP, byte(c.PC)); c.stepDevices(4)
-		c.MMU.Write(c.SP+1, byte(c.PC>>8)); c.stepDevices(4)
+		c.SP -= 2
+		c.stepDevices(4)
+		c.MMU.Write(c.SP, byte(c.PC))
+		c.stepDevices(4)
+		c.MMU.Write(c.SP+1, byte(c.PC>>8))
+		c.stepDevices(4)
 		c.PC = 0x10
 		return 16, nil
 	}
 	mainHandler[0xDF] = func(c *Core) (int, error) {
-		c.SP -= 2; c.stepDevices(4)
-		c.MMU.Write(c.SP, byte(c.PC)); c.stepDevices(4)
-		c.MMU.Write(c.SP+1, byte(c.PC>>8)); c.stepDevices(4)
+		c.SP -= 2
+		c.stepDevices(4)
+		c.MMU.Write(c.SP, byte(c.PC))
+		c.stepDevices(4)
+		c.MMU.Write(c.SP+1, byte(c.PC>>8))
+		c.stepDevices(4)
 		c.PC = 0x18
 		return 16, nil
 	}
 	mainHandler[0xE7] = func(c *Core) (int, error) {
-		c.SP -= 2; c.stepDevices(4)
-		c.MMU.Write(c.SP, byte(c.PC)); c.stepDevices(4)
-		c.MMU.Write(c.SP+1, byte(c.PC>>8)); c.stepDevices(4)
+		c.SP -= 2
+		c.stepDevices(4)
+		c.MMU.Write(c.SP, byte(c.PC))
+		c.stepDevices(4)
+		c.MMU.Write(c.SP+1, byte(c.PC>>8))
+		c.stepDevices(4)
 		c.PC = 0x20
 		return 16, nil
 	}
 	mainHandler[0xEF] = func(c *Core) (int, error) {
-		c.SP -= 2; c.stepDevices(4)
-		c.MMU.Write(c.SP, byte(c.PC)); c.stepDevices(4)
-		c.MMU.Write(c.SP+1, byte(c.PC>>8)); c.stepDevices(4)
+		c.SP -= 2
+		c.stepDevices(4)
+		c.MMU.Write(c.SP, byte(c.PC))
+		c.stepDevices(4)
+		c.MMU.Write(c.SP+1, byte(c.PC>>8))
+		c.stepDevices(4)
 		c.PC = 0x28
 		return 16, nil
 	}
 	mainHandler[0xF7] = func(c *Core) (int, error) {
-		c.SP -= 2; c.stepDevices(4)
-		c.MMU.Write(c.SP, byte(c.PC)); c.stepDevices(4)
-		c.MMU.Write(c.SP+1, byte(c.PC>>8)); c.stepDevices(4)
+		c.SP -= 2
+		c.stepDevices(4)
+		c.MMU.Write(c.SP, byte(c.PC))
+		c.stepDevices(4)
+		c.MMU.Write(c.SP+1, byte(c.PC>>8))
+		c.stepDevices(4)
 		c.PC = 0x30
 		return 16, nil
 	}
 	mainHandler[0xFF] = func(c *Core) (int, error) {
-		c.SP -= 2; c.stepDevices(4)
-		c.MMU.Write(c.SP, byte(c.PC)); c.stepDevices(4)
-		c.MMU.Write(c.SP+1, byte(c.PC>>8)); c.stepDevices(4)
+		c.SP -= 2
+		c.stepDevices(4)
+		c.MMU.Write(c.SP, byte(c.PC))
+		c.stepDevices(4)
+		c.MMU.Write(c.SP+1, byte(c.PC>>8))
+		c.stepDevices(4)
 		c.PC = 0x38
 		return 16, nil
 	}
@@ -838,7 +1028,9 @@ func initMisc() {
 		a := c.A()
 		c.setFlagC(a&0x80 != 0)
 		c.setA((a << 1) | (a >> 7))
-		c.setFlagZ(false); c.setFlagN(false); c.setFlagH(false)
+		c.setFlagZ(false)
+		c.setFlagN(false)
+		c.setFlagH(false)
 		return 4, nil
 	}
 	// RRCA (0x0F): 4 cycles
@@ -846,7 +1038,9 @@ func initMisc() {
 		a := c.A()
 		c.setFlagC(a&0x01 != 0)
 		c.setA((a >> 1) | (a << 7))
-		c.setFlagZ(false); c.setFlagN(false); c.setFlagH(false)
+		c.setFlagZ(false)
+		c.setFlagN(false)
+		c.setFlagH(false)
 		return 4, nil
 	}
 	// RLA (0x17): 4 cycles
@@ -855,7 +1049,9 @@ func initMisc() {
 		oldC := c.flagC()
 		c.setFlagC(a&0x80 != 0)
 		c.setA((a << 1) | boolToByte(oldC))
-		c.setFlagZ(false); c.setFlagN(false); c.setFlagH(false)
+		c.setFlagZ(false)
+		c.setFlagN(false)
+		c.setFlagH(false)
 		return 4, nil
 	}
 	// RRA (0x1F): 4 cycles
@@ -864,7 +1060,9 @@ func initMisc() {
 		oldC := c.flagC()
 		c.setFlagC(a&0x01 != 0)
 		c.setA((a >> 1) | (boolToByte(oldC) << 7))
-		c.setFlagZ(false); c.setFlagN(false); c.setFlagH(false)
+		c.setFlagZ(false)
+		c.setFlagN(false)
+		c.setFlagH(false)
 		return 4, nil
 	}
 
@@ -902,17 +1100,22 @@ func initMisc() {
 	// CPL (0x2F): 4 cycles
 	mainHandler[0x2F] = func(c *Core) (int, error) {
 		c.setA(^c.A())
-		c.setFlagN(true); c.setFlagH(true)
+		c.setFlagN(true)
+		c.setFlagH(true)
 		return 4, nil
 	}
 	// SCF (0x37): 4 cycles
 	mainHandler[0x37] = func(c *Core) (int, error) {
-		c.setFlagN(false); c.setFlagH(false); c.setFlagC(true)
+		c.setFlagN(false)
+		c.setFlagH(false)
+		c.setFlagC(true)
 		return 4, nil
 	}
 	// CCF (0x3F): 4 cycles
 	mainHandler[0x3F] = func(c *Core) (int, error) {
-		c.setFlagN(false); c.setFlagH(false); c.setFlagC(!c.flagC())
+		c.setFlagN(false)
+		c.setFlagH(false)
+		c.setFlagC(!c.flagC())
 		return 4, nil
 	}
 	// DI (0xF3): 4 cycles

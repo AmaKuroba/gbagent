@@ -4,22 +4,22 @@ package gb
 // interrupt state, and cycle counter. Embedded in Core and EmulatorState.
 type CPUState struct {
 	AF, BC, DE, HL, SP, PC uint16
-	IME          bool
-	IMEScheduled int  // EI schedule: 2=just set, 1=enable after this instr, 0=active
-	Halted       bool
-	Stopped      bool
-	HaltBug      bool // HALT bug: prevent PC increment on next opcode fetch
-	Cycles       uint64
+	IME                    bool
+	IMEScheduled           int // EI schedule: 2=just set, 1=enable after this instr, 0=active
+	Halted                 bool
+	Stopped                bool
+	HaltBug                bool // HALT bug: prevent PC increment on next opcode fetch
+	Cycles                 uint64
 }
 
 // PPUState is the canonical PPU state with all registers, timing, and framebuffer.
 type PPUState struct {
-	Mode       int
-	LY         byte
-	LYC        byte
-	Stat       byte  // STAT register
-	LCDC       byte
-	FrameCtr   int   // frame counter
+	Mode     int
+	LY       byte
+	LYC      byte
+	Stat     byte // STAT register
+	LCDC     byte
+	FrameCtr int // frame counter
 
 	DotCounter int
 	SCY        byte
@@ -30,12 +30,12 @@ type PPUState struct {
 	WX         byte
 	WY         byte
 
-	IsRunning          bool
-	ScanlineRendered   bool
-	Mode2End           int
-	Mode3End           int
-	OAMScanned         bool
-	FirstFrameBlank    bool
+	IsRunning        bool
+	ScanlineRendered bool
+	Mode2End         int
+	Mode3End         int
+	OAMScanned       bool
+	FirstFrameBlank  bool
 
 	// Framebuffer
 	Screen [160][144]byte
@@ -43,67 +43,67 @@ type PPUState struct {
 
 // MBCState captures memory-bank controller state for full save/restore.
 type MBCState struct {
-	RamEnabled  bool
-	RomBankLow  byte   // Lower 8 bits of ROM bank (MBC1/2/3/5)
-	RomBankHi   byte   // Bit 8 of ROM bank (MBC5 only; upper bank bits for MBC1/3)
-	RamBankReg  byte   // RAM bank register (MBC1/3/5)
-	Mode        byte   // Banking mode (MBC1 only: 0=simple, 1=advanced)
-	HasRTC      bool   // MBC3 with RTC
-	RTCRegs     [5]byte
-	RTCLatched  [5]byte
+	RamEnabled   bool
+	RomBankLow   byte // Lower 8 bits of ROM bank (MBC1/2/3/5)
+	RomBankHi    byte // Bit 8 of ROM bank (MBC5 only; upper bank bits for MBC1/3)
+	RamBankReg   byte // RAM bank register (MBC1/3/5)
+	Mode         byte // Banking mode (MBC1 only: 0=simple, 1=advanced)
+	HasRTC       bool // MBC3 with RTC
+	RTCRegs      [5]byte
+	RTCLatched   [5]byte
 	RTCLatchStep byte
-	RTCClock    int64
-	MBCType     byte   // 0=ROMonly, 1=MBC1, 2=MBC2, 3=MBC3, 5=MBC5
+	RTCClock     int64
+	MBCType      byte // 0=ROMonly, 1=MBC1, 2=MBC2, 3=MBC3, 5=MBC5
 }
 
 // APUState captures all APU registers, channel state, and internal state.
 type APUState struct {
-	Regs        [23]byte
-	WaveRAM     [16]byte
-	Ch1On       bool
-	Ch2On       bool
-	Ch3On       bool
-	Ch4On       bool
-	CycAccum    int
-	SeqStep     int
-	LengthCnt   [4]int
-	HPIntoL     int16
-	HPOutL      int
-	HPIntoR     int16
-	HPOutR      int
+	Regs      [23]byte
+	WaveRAM   [16]byte
+	Ch1On     bool
+	Ch2On     bool
+	Ch3On     bool
+	Ch4On     bool
+	CycAccum  int
+	SeqStep   int
+	LengthCnt [4]int
+	HPIntoL   int16
+	HPOutL    int
+	HPIntoR   int16
+	HPOutR    int
 
 	// CH1 pulse channel
-	Pulse1Freq    int
-	Pulse1Accum   int
-	Pulse1DutyPos int
-	Pulse1Duty    int
-	Pulse1Vol     int
+	Pulse1Freq      int
+	Pulse1Accum     int
+	Pulse1DutyPos   int
+	Pulse1Duty      int
+	Pulse1Vol       int
 	Pulse1EnvTimer  int
 	Pulse1EnvPeriod int
 	Pulse1EnvDir    int
 
 	// CH2 pulse channel
-	Pulse2Freq    int
-	Pulse2Accum   int
-	Pulse2DutyPos int
-	Pulse2Duty    int
-	Pulse2Vol     int
+	Pulse2Freq      int
+	Pulse2Accum     int
+	Pulse2DutyPos   int
+	Pulse2Duty      int
+	Pulse2Vol       int
 	Pulse2EnvTimer  int
 	Pulse2EnvPeriod int
 	Pulse2EnvDir    int
 
 	// CH1 sweep unit
-	SweepShadowFreq   int
-	SweepTimer        int
-	SweepEnabled      bool
-	SweepPeriod       int
-	SweepNegate       bool
-	SweepShift        int
+	SweepShadowFreq int
+	SweepTimer      int
+	SweepEnabled    bool
+	SweepPeriod     int
+	SweepNegate     bool
+	SweepShift      int
 
 	// CH4 noise channel
-	NoiseLFSR     uint16
-	NoiseAccum    int
-	NoiseVol      int
+	NoiseLFSR      uint16
+	NoiseAccum     int
+	NoiseVol       int
 	NoiseEnvTimer  int
 	NoiseEnvPeriod int
 	NoiseEnvDir    int

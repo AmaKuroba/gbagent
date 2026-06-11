@@ -22,14 +22,14 @@ func NewCore(mmu MMU) *Core {
 	}
 }
 
-func (c *Core) A() byte   { return byte(c.AF >> 8) }
-func (c *Core) F() byte   { return byte(c.AF) }
-func (c *Core) B() byte   { return byte(c.BC >> 8) }
-func (c *Core) C() byte   { return byte(c.BC) }
-func (c *Core) D() byte   { return byte(c.DE >> 8) }
-func (c *Core) E() byte   { return byte(c.DE) }
-func (c *Core) H() byte   { return byte(c.HL >> 8) }
-func (c *Core) L() byte   { return byte(c.HL) }
+func (c *Core) A() byte { return byte(c.AF >> 8) }
+func (c *Core) F() byte { return byte(c.AF) }
+func (c *Core) B() byte { return byte(c.BC >> 8) }
+func (c *Core) C() byte { return byte(c.BC) }
+func (c *Core) D() byte { return byte(c.DE >> 8) }
+func (c *Core) E() byte { return byte(c.DE) }
+func (c *Core) H() byte { return byte(c.HL >> 8) }
+func (c *Core) L() byte { return byte(c.HL) }
 
 func (c *Core) setA(v byte) { c.AF = uint16(v)<<8 | uint16(c.F()) }
 func (c *Core) setB(v byte) { c.BC = uint16(v)<<8 | uint16(c.C()) }
@@ -72,32 +72,53 @@ func (c *Core) push16(val uint16) {
 
 func (c *Core) readReg8(idx int) byte {
 	switch idx {
-	case 0: return c.B()
-	case 1: return c.C()
-	case 2: return c.D()
-	case 3: return c.E()
-	case 4: return c.H()
-	case 5: return c.L()
-	case 6: return c.MMU.Read(c.HL)
-	case 7: return c.A()
+	case 0:
+		return c.B()
+	case 1:
+		return c.C()
+	case 2:
+		return c.D()
+	case 3:
+		return c.E()
+	case 4:
+		return c.H()
+	case 5:
+		return c.L()
+	case 6:
+		return c.MMU.Read(c.HL)
+	case 7:
+		return c.A()
 	}
 	return 0
 }
 
 func (c *Core) writeReg8(idx int, val byte) {
 	switch idx {
-	case 0: c.setB(val)
-	case 1: c.setC(val)
-	case 2: c.setD(val)
-	case 3: c.setE(val)
-	case 4: c.setH(val)
-	case 5: c.setL(val)
-	case 6: c.MMU.Write(c.HL, val)
-	case 7: c.setA(val)
+	case 0:
+		c.setB(val)
+	case 1:
+		c.setC(val)
+	case 2:
+		c.setD(val)
+	case 3:
+		c.setE(val)
+	case 4:
+		c.setH(val)
+	case 5:
+		c.setL(val)
+	case 6:
+		c.MMU.Write(c.HL, val)
+	case 7:
+		c.setA(val)
 	}
 }
 
-func boolToByte(b bool) byte { if b { return 1 }; return 0 }
+func boolToByte(b bool) byte {
+	if b {
+		return 1
+	}
+	return 0
+}
 
 func (c *Core) addA(val byte) {
 	a := uint16(c.A())
@@ -144,19 +165,28 @@ func (c *Core) sbcA(val byte) {
 func (c *Core) andA(val byte) {
 	r := c.A() & val
 	c.setA(r)
-	c.setFlagZ(r == 0); c.setFlagN(false); c.setFlagH(true); c.setFlagC(false)
+	c.setFlagZ(r == 0)
+	c.setFlagN(false)
+	c.setFlagH(true)
+	c.setFlagC(false)
 }
 
 func (c *Core) orA(val byte) {
 	r := c.A() | val
 	c.setA(r)
-	c.setFlagZ(r == 0); c.setFlagN(false); c.setFlagH(false); c.setFlagC(false)
+	c.setFlagZ(r == 0)
+	c.setFlagN(false)
+	c.setFlagH(false)
+	c.setFlagC(false)
 }
 
 func (c *Core) xorA(val byte) {
 	r := c.A() ^ val
 	c.setA(r)
-	c.setFlagZ(r == 0); c.setFlagN(false); c.setFlagH(false); c.setFlagC(false)
+	c.setFlagZ(r == 0)
+	c.setFlagN(false)
+	c.setFlagH(false)
+	c.setFlagC(false)
 }
 
 func (c *Core) cpA(val byte) {
@@ -207,14 +237,14 @@ func (c *Core) Step() (int, error) {
 	}
 	if c.Halted {
 		c.stepDevices(4)
-		if (c.MMU.Read(0xFF0F)&c.MMU.Read(0xFFFF)) != 0 {
+		if (c.MMU.Read(0xFF0F) & c.MMU.Read(0xFFFF)) != 0 {
 			c.Halted = false
 		}
 		return 4, nil
 	}
 	if c.Stopped {
 		c.stepDevices(4)
-		if (c.MMU.Read(0xFF0F)&c.MMU.Read(0xFFFF)) != 0 {
+		if (c.MMU.Read(0xFF0F) & c.MMU.Read(0xFFFF)) != 0 {
 			c.Stopped = false
 		}
 		return 4, nil
@@ -278,11 +308,21 @@ func (c *Core) serveInterrupt() bool {
 	var vector uint16
 	var bit byte
 	switch {
-	case t&0x01 != 0: vector = 0x0040; bit = 0x01
-	case t&0x02 != 0: vector = 0x0048; bit = 0x02
-	case t&0x04 != 0: vector = 0x0050; bit = 0x04
-	case t&0x08 != 0: vector = 0x0058; bit = 0x08
-	case t&0x10 != 0: vector = 0x0060; bit = 0x10
+	case t&0x01 != 0:
+		vector = 0x0040
+		bit = 0x01
+	case t&0x02 != 0:
+		vector = 0x0048
+		bit = 0x02
+	case t&0x04 != 0:
+		vector = 0x0050
+		bit = 0x04
+	case t&0x08 != 0:
+		vector = 0x0058
+		bit = 0x08
+	case t&0x10 != 0:
+		vector = 0x0060
+		bit = 0x10
 	}
 	c.IME = false
 	c.IMEScheduled = 0
@@ -294,10 +334,18 @@ func (c *Core) serveInterrupt() bool {
 }
 
 func (c *Core) Reset() {
-	c.AF = 0x01B0; c.BC = 0x0013; c.DE = 0x00D8
-	c.HL = 0x014D; c.SP = 0xFFFE; c.PC = 0x0100
-	c.IME = false; c.IMEScheduled = 0
-	c.Halted = false; c.Stopped = false; c.HaltBug = false; c.Cycles = 0
+	c.AF = 0x01B0
+	c.BC = 0x0013
+	c.DE = 0x00D8
+	c.HL = 0x014D
+	c.SP = 0xFFFE
+	c.PC = 0x0100
+	c.IME = false
+	c.IMEScheduled = 0
+	c.Halted = false
+	c.Stopped = false
+	c.HaltBug = false
+	c.Cycles = 0
 }
 
 func (c *Core) GetState() CPUState {
@@ -315,9 +363,9 @@ func NewCoreCPU(mmu MMU) *Core { return NewCore(mmu) }
 func NewCPU(mmu MMU) *Core { return NewCore(mmu) }
 
 // 16-bit register accessors (test compatibility).
-func (c *Core) GetBC() uint16 { return c.BC }
-func (c *Core) GetDE() uint16 { return c.DE }
-func (c *Core) GetHL() uint16 { return c.HL }
+func (c *Core) GetBC() uint16  { return c.BC }
+func (c *Core) GetDE() uint16  { return c.DE }
+func (c *Core) GetHL() uint16  { return c.HL }
 func (c *Core) SetBC(v uint16) { c.BC = v }
 func (c *Core) SetDE(v uint16) { c.DE = v }
 func (c *Core) SetHL(v uint16) { c.HL = v }

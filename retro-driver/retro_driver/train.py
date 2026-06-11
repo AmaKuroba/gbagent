@@ -166,7 +166,7 @@ def train(config: TrainConfig) -> None:
         # Takeover released → flush demos into replay buffer
         if prev_takeover and not takeover and demo_frames:
             n = len(demo_frames)
-            for i, (frame, (dpad_a, btn_a)) in enumerate(zip(demo_frames, demo_actions)):
+            for _i, (frame, (dpad_a, btn_a)) in enumerate(zip(demo_frames, demo_actions, strict=False)):
                 if frame_store is not None:
                     gid = frame_store.add(frame)
                     start_gid = gid - (config.frame_stack - 1)

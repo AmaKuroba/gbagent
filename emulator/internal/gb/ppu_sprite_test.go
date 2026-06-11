@@ -266,8 +266,8 @@ func TestSpriteVsBackgroundPriority(t *testing.T) {
 	ppu.WriteRegister(0xFF40, 0x93)
 
 	writeSpriteOAM(mmu, 0, 26, 18, 1, 0x80) // Y=10, X=10, behind BG
-	writeTileToVRAM(mmu, 1, 3) // sprite tile = shade 3
-	writeTileToVRAM(mmu, 0, 0) // BG tile 0 = shade 0
+	writeTileToVRAM(mmu, 1, 3)              // sprite tile = shade 3
+	writeTileToVRAM(mmu, 0, 0)              // BG tile 0 = shade 0
 	fillTileMap(mmu, 0x9800, 0x00)
 
 	ppu.Step(2 * FrameCycles)
@@ -284,7 +284,7 @@ func TestSpriteVsBackgroundPriority(t *testing.T) {
 	writeTileToVRAM(mmu2, 0, 1) // BG tile 0 = shade 1
 	fillTileMap(mmu2, 0x9800, 0x00)
 	writeSpriteOAM(mmu2, 0, 26, 18, 1, 0x80) // Y=10, X=10, behind BG
-	writeTileToVRAM(mmu2, 1, 3) // sprite tile = shade 3
+	writeTileToVRAM(mmu2, 1, 3)              // sprite tile = shade 3
 
 	ppu2.Step(2 * FrameCycles)
 	s2 := ppu2.GetScreen()
@@ -300,7 +300,7 @@ func TestSpriteVsBackgroundPriority(t *testing.T) {
 	writeTileToVRAM(mmu3, 0, 1) // BG tile 0 = shade 1
 	fillTileMap(mmu3, 0x9800, 0x00)
 	writeSpriteOAM(mmu3, 0, 26, 18, 1, 0x00) // Y=10, X=10, above BG
-	writeTileToVRAM(mmu3, 1, 3) // sprite tile = shade 3
+	writeTileToVRAM(mmu3, 1, 3)              // sprite tile = shade 3
 
 	ppu3.Step(2 * FrameCycles)
 	s3 := ppu3.GetScreen()

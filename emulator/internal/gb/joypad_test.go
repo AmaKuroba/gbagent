@@ -34,15 +34,15 @@ func (m *joypadTestMMU) Write16(addr uint16, val uint16) {
 	m.Write(addr+1, byte(val>>8))
 }
 
-func (m *joypadTestMMU) LoadROM(data []byte)             {}
-func (m *joypadTestMMU) LoadBootROM(data []byte)          {}
-func (m *joypadTestMMU) ReadIF() byte                     { return m.ifReg }
-func (m *joypadTestMMU) ReadIE() byte                     { return 0 }
-func (m *joypadTestMMU) WriteIF(val byte)                 { m.ifReg = val }
-func (m *joypadTestMMU) DMAStep(cycles int)               {}
-func (m *joypadTestMMU) SerialStep(cycles int)            {}
-func (m *joypadTestMMU) SetJoypadButtons(buttons byte)    {}
-func (m *joypadTestMMU) StepDevices(cycles int)            {}
+func (m *joypadTestMMU) LoadROM(data []byte)           {}
+func (m *joypadTestMMU) LoadBootROM(data []byte)       {}
+func (m *joypadTestMMU) ReadIF() byte                  { return m.ifReg }
+func (m *joypadTestMMU) ReadIE() byte                  { return 0 }
+func (m *joypadTestMMU) WriteIF(val byte)              { m.ifReg = val }
+func (m *joypadTestMMU) DMAStep(cycles int)            {}
+func (m *joypadTestMMU) SerialStep(cycles int)         {}
+func (m *joypadTestMMU) SetJoypadButtons(buttons byte) {}
+func (m *joypadTestMMU) StepDevices(cycles int)        {}
 
 // ---------------------------------------------------------------------------
 // Joypad interrupt tests
@@ -77,7 +77,7 @@ func TestJoypadInterrupt_NoInterruptWithoutButtonPress(t *testing.T) {
 	joypad.ReadRegister()   // first read with button pressed → establishes baseline
 	mmu.ifReg = 0x00        // clear IF
 
-	joypad.ReadRegister()   // second read, still pressed — no transition
+	joypad.ReadRegister() // second read, still pressed — no transition
 	assert.Equal(t, byte(0x00), mmu.ifReg&0x10, "IF bit 4 should not be set when button stays pressed")
 }
 
@@ -190,7 +190,7 @@ func TestJoypadInterrupt_ColumnChangeGeneratesNewBaseline(t *testing.T) {
 
 	// Select action column (P15=0)
 	joypad.WriteRegister(0x10) // P14=1, P15=0 → action column
-	joypad.ReadRegister() // establish baseline (no action buttons pressed)
+	joypad.ReadRegister()      // establish baseline (no action buttons pressed)
 	mmu.ifReg = 0x00
 
 	// Press A (bit 4) — this is in the action column
@@ -204,9 +204,9 @@ func TestJoypadInterrupt_ColumnChangeGeneratesNewBaseline(t *testing.T) {
 	assert.Equal(t, byte(0x00), mmu.ifReg&0x10, "IF bit 4 should not repeat on same state")
 
 	// Now switch to direction column (P14=0, P15=1)
-	joypad.SetButtons(0x00) // release all
+	joypad.SetButtons(0x00)    // release all
 	joypad.WriteRegister(0x20) // P14=0, P15=1 → direction column
-	joypad.ReadRegister() // establish baseline for direction column
+	joypad.ReadRegister()      // establish baseline for direction column
 	mmu.ifReg = 0x00
 
 	// Press Right button

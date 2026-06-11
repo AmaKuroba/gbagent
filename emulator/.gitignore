@@ -26,5 +26,6 @@ testdata/
 *.zip
 
 # Archive
-internal/_archive_gb/
+internal/**/_archive/
+*.backup
 TODO.md

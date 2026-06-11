@@ -2,18 +2,20 @@ package gb
 
 // Timer implements the Game Boy timer and divider hardware.
 // Registers (all 8-bit):
-//   0xFF04 — DIV:  Incremented at 16384 Hz (every 256 T-cycles).
-//                  Writing any value resets it to $00.
-//   0xFF05 — TIMA: Timer counter. Incremented at a rate controlled by TAC.
-//                  On overflow ($FF→$00) reloads from TMA and sets IF bit 2.
-//   0xFF06 — TMA:  Timer modulo. Value loaded into TIMA on overflow.
-//   0xFF07 — TAC:  Timer control. Bit 2 = enable, bits 1-0 = clock select.
+//
+//	0xFF04 — DIV:  Incremented at 16384 Hz (every 256 T-cycles).
+//	               Writing any value resets it to $00.
+//	0xFF05 — TIMA: Timer counter. Incremented at a rate controlled by TAC.
+//	               On overflow ($FF→$00) reloads from TMA and sets IF bit 2.
+//	0xFF06 — TMA:  Timer modulo. Value loaded into TIMA on overflow.
+//	0xFF07 — TAC:  Timer control. Bit 2 = enable, bits 1-0 = clock select.
 //
 // Clock selection (TAC bits 1-0):
-//   00: 4096 Hz   (every 1024 T-cycles)
-//   01: 262144 Hz (every 16 T-cycles)
-//   10: 65536 Hz  (every 64 T-cycles)
-//   11: 16384 Hz  (every 256 T-cycles)
+//
+//	00: 4096 Hz   (every 1024 T-cycles)
+//	01: 262144 Hz (every 16 T-cycles)
+//	10: 65536 Hz  (every 64 T-cycles)
+//	11: 16384 Hz  (every 256 T-cycles)
 type Timer struct {
 	*TimerState
 	mmu MMU

@@ -4,10 +4,12 @@ import (
 	"encoding/gob"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/AmaKuroba/gbagent/dashboard"
 	"github.com/AmaKuroba/gbagent/internal/gb"
@@ -167,17 +169,17 @@ func (b *mcpBridge) broadcastAction(tool, args string) {
 
 func newBridge(mmu *gb.MemoryBus, cpu *gb.Core, ppu *gb.PPUCore, timer *gb.Timer, apu *gb.APU, cart gb.Cartridge, romPath string, hub *dashboard.Hub, joypadState func() byte) *mcpBridge {
 	return &mcpBridge{
-		mmu:          mmu,
-		cpu:          cpu,
-		ppu:          ppu,
-		timer:        timer,
-		apu:          apu,
-		cart:         cart,
-		romPath:      romPath,
-		hub:          hub,
-		cmds:         make(chan mcpCmd, 64),
-		donec:        make(chan struct{}),
-		joypadState:  joypadState,
+		mmu:         mmu,
+		cpu:         cpu,
+		ppu:         ppu,
+		timer:       timer,
+		apu:         apu,
+		cart:        cart,
+		romPath:     romPath,
+		hub:         hub,
+		cmds:        make(chan mcpCmd, 64),
+		donec:       make(chan struct{}),
+		joypadState: joypadState,
 	}
 }
 
@@ -232,10 +234,17 @@ func (b *mcpBridge) LoadState(path string) error {
 }
 
 // exec sends a command to the background processor and waits for the result.
+// Returns nil if the command cannot be queued within 5 seconds (prevents deadlock).
 func (b *mcpBridge) exec(fn func() any) any {
 	result := make(chan any, 1)
-	b.cmds <- mcpCmd{fn: fn, result: result}
-	return <-result
+	cmd := mcpCmd{fn: fn, result: result}
+	select {
+	case b.cmds <- cmd:
+		return <-result
+	case <-time.After(5 * time.Second):
+		log.Printf("bridge: exec timeout — command queue full")
+		return nil
+	}
 }
 
 // startProcessor launches a goroutine that processes exec commands.
