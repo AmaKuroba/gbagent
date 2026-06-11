@@ -1,6 +1,5 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
-/// Joypad button bit constants (active-high internal state).
 pub const JOYPAD_RIGHT: u32 = 0x01;
 pub const JOYPAD_LEFT: u32 = 0x02;
 pub const JOYPAD_UP: u32 = 0x04;
@@ -10,8 +9,6 @@ pub const JOYPAD_B: u32 = 0x20;
 pub const JOYPAD_SELECT: u32 = 0x40;
 pub const JOYPAD_START: u32 = 0x80;
 
-/// Thread-safe joypad state using atomic operations.
-/// Bit layout: R(0) L(1) U(2) D(3) A(4) B(5) Select(6) Start(7).
 pub struct Joypad {
     state: AtomicU32,
 }
@@ -42,7 +39,6 @@ impl Joypad {
     }
 }
 
-/// Map keyboard key names (from the dashboard) to joypad bitmasks.
 pub fn key_to_bits(key: &str) -> Option<u32> {
     match key {
         "w" => Some(JOYPAD_UP),
@@ -57,7 +53,6 @@ pub fn key_to_bits(key: &str) -> Option<u32> {
     }
 }
 
-/// Extract dpad index (0-4) and btn index (0-4) from a joypad state value.
 pub fn decode_joypad(bits: u32) -> (u8, u8) {
     let dpad = if bits & JOYPAD_RIGHT != 0 { 4 }
     else if bits & JOYPAD_LEFT != 0 { 3 }
@@ -70,4 +65,85 @@ pub fn decode_joypad(bits: u32) -> (u8, u8) {
     else if bits & JOYPAD_SELECT != 0 { 4 }
     else { 0 };
     (dpad, btn)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_joypad_new_is_idle() {
+        let j = Joypad::new();
+        assert!(j.is_idle());
+        assert_eq!(j.state(), 0);
+    }
+
+    #[test]
+    fn test_joypad_press_and_release() {
+        let j = Joypad::new();
+        j.press(JOYPAD_A);
+        assert_eq!(j.state(), JOYPAD_A);
+        j.release(JOYPAD_A);
+        assert!(j.is_idle());
+    }
+
+    #[test]
+    fn test_joypad_multi_press() {
+        let j = Joypad::new();
+        j.press(JOYPAD_UP | JOYPAD_A);
+        assert!(j.state() & JOYPAD_UP != 0);
+        assert!(j.state() & JOYPAD_A != 0);
+    }
+
+    #[test]
+    fn test_joypad_release_one() {
+        let j = Joypad::new();
+        j.press(JOYPAD_UP | JOYPAD_A | JOYPAD_B);
+        j.release(JOYPAD_A);
+        let s = j.state();
+        assert!(s & JOYPAD_UP != 0);
+        assert!(s & JOYPAD_B != 0);
+        assert_eq!(s & JOYPAD_A, 0);
+    }
+
+    #[test]
+    fn test_joypad_release_all() {
+        let j = Joypad::new();
+        j.press(JOYPAD_UP | JOYPAD_DOWN | JOYPAD_A);
+        j.release_all();
+        assert!(j.is_idle());
+    }
+
+    #[test]
+    fn test_key_to_bits() {
+        assert_eq!(key_to_bits("w"), Some(JOYPAD_UP));
+        assert_eq!(key_to_bits("x"), None);
+        assert_eq!(key_to_bits(""), None);
+    }
+
+    #[test]
+    fn test_decode_joypad_dpad() {
+        assert_eq!(decode_joypad(JOYPAD_RIGHT), (4, 0));
+        assert_eq!(decode_joypad(JOYPAD_LEFT), (3, 0));
+        assert_eq!(decode_joypad(JOYPAD_UP), (1, 0));
+        assert_eq!(decode_joypad(JOYPAD_DOWN), (2, 0));
+    }
+
+    #[test]
+    fn test_decode_joypad_btn() {
+        assert_eq!(decode_joypad(JOYPAD_A), (0, 1));
+        assert_eq!(decode_joypad(JOYPAD_B), (0, 2));
+        assert_eq!(decode_joypad(JOYPAD_START), (0, 3));
+        assert_eq!(decode_joypad(JOYPAD_SELECT), (0, 4));
+    }
+
+    #[test]
+    fn test_double_press_idempotent() {
+        let j = Joypad::new();
+        j.press(JOYPAD_A);
+        j.press(JOYPAD_A);
+        assert_eq!(j.state(), JOYPAD_A);
+        j.release(JOYPAD_A);
+        assert!(j.is_idle());
+    }
 }

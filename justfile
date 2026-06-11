@@ -3,14 +3,17 @@
 build:
     cargo build --release
 
+# === Lint ===
+
+clippy:
+    cargo clippy -- -D warnings
+
+check: clippy
+
 # === Test ===
 
 test:
     cargo test
-
-check:
-    cargo build
-    cargo clippy -- -D warnings
 
 # === Run ===
 
@@ -20,6 +23,5 @@ serve rom:
 train rom args='':
     cargo run --release -- --rom {{rom}} --train {{args}}
 
-# Default: just serve
 default:
     just --list

@@ -124,3 +124,69 @@ fn extract_string_field(text: &str, _field: &str) -> Option<String> {
     let val_end = after_colon[value_start..].find('"')?;
     Some(after_colon[value_start..value_start + val_end].to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::joypad::JOYPAD_A;
+
+    fn test_joypad() -> std::sync::Arc<Joypad> {
+        std::sync::Arc::new(Joypad::new())
+    }
+
+    #[test]
+    fn test_handle_key_press() {
+        let j = test_joypad();
+        handle_text_message(&j, r#"{"key":"k","pressed":true}"#);
+        assert_eq!(j.state(), JOYPAD_A);
+    }
+
+    #[test]
+    fn test_handle_key_release() {
+        let j = test_joypad();
+        handle_text_message(&j, r#"{"key":"k","pressed":true}"#);
+        handle_text_message(&j, r#"{"key":"k","pressed":false}"#);
+        assert!(j.is_idle());
+    }
+
+    #[test]
+    fn test_handle_invalid_key() {
+        let j = test_joypad();
+        handle_text_message(&j, r#"{"key":"z","pressed":true}"#);
+        assert!(j.is_idle(), "invalid key should not press anything");
+    }
+
+    #[test]
+    fn test_handle_takeover_clears_joypad() {
+        let j = test_joypad();
+        j.press(JOYPAD_A);
+        handle_text_message(&j, r#"{"takeover":true}"#);
+        assert!(j.is_idle(), "takeover should release all buttons");
+    }
+
+    #[test]
+    fn test_extract_string_field() {
+        let result = extract_string_field(r#"{"save_state":"path/to/save.sav"}"#, "save_state");
+        assert_eq!(result.as_deref(), Some("path/to/save.sav"));
+    }
+
+    #[test]
+    fn test_extract_string_field_empty() {
+        let result = extract_string_field(r#"{}"#, "missing");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_handle_text_trash() {
+        let j = test_joypad();
+        handle_text_message(&j, "not json at all {{{{{{");
+        assert!(j.is_idle());
+    }
+
+    #[test]
+    fn test_handle_text_empty() {
+        let j = test_joypad();
+        handle_text_message(&j, "");
+        assert!(j.is_idle());
+    }
+}
