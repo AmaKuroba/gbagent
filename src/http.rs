@@ -10,14 +10,14 @@ use tokio::net::TcpListener;
 use tokio::sync::watch;
 
 use crate::hub::Hub;
+use crate::recorder::Recorder;
 
-/// Shared application state for HTTP handlers.
 pub struct HttpState {
     pub hub: Arc<Hub>,
     pub train_tx: watch::Sender<bool>,
+    pub rec: Arc<Recorder>,
 }
 
-/// Start the Hyper HTTP server on the given address.
 pub async fn serve(state: Arc<HttpState>, addr: &str) -> anyhow::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     log::info!("http: listening on http://{addr}");
@@ -43,34 +43,40 @@ async fn handle_request(
     state: Arc<HttpState>,
     req: Request<Incoming>,
 ) -> Result<Response<Full<bytes::Bytes>>, hyper::Error> {
-    match (req.method(), req.uri().path()) {
+    let path = req.uri().path().to_string();
+    let method = req.method().clone();
+
+    match (&method, path.as_str()) {
         (&Method::GET, "/") => serve_static("index.html").await,
-        (&Method::GET, path) if path.starts_with("/record/") => {
-            handle_record(state, req).await
+        (&Method::POST, "/train/start") => {
+            if state.train_tx.send(true).is_err() {
+                return Ok(error_response("channel closed"));
+            }
+            json_ok(&serde_json::json!({"status": "training"}))
+        }
+        (&Method::POST, "/train/stop") => {
+            if state.train_tx.send(false).is_err() {
+                return Ok(error_response("channel closed"));
+            }
+            json_ok(&serde_json::json!({"status": "stopped"}))
+        }
+        (&Method::POST, "/record/start") => {
+            match state.rec.start(".") {
+                Ok(dir) => json_ok(&serde_json::json!({"status": "ok", "dir": dir})),
+                Err(e) => Ok(error_response(&e.to_string())),
+            }
+        }
+        (&Method::POST, "/record/stop") => {
+            let video = req.uri().query().map(|q| q.contains("video=true")).unwrap_or(false);
+            match state.rec.stop(video) {
+                Ok(result) => json_ok(&serde_json::json!(result)),
+                Err(e) => Ok(error_response(&e.to_string())),
+            }
+        }
+        (&Method::GET, "/record/status") => {
+            json_ok(&serde_json::json!(state.rec.status()))
         }
         _ => {
-            let mut not_found = Response::new(Full::new(bytes::Bytes::from("not found")));
-            *not_found.status_mut() = StatusCode::NOT_FOUND;
-            Ok(not_found)
-        }
-    }
-}
-
-async fn serve_static(filename: &str) -> Result<Response<Full<bytes::Bytes>>, hyper::Error> {
-    let path = format!("static/{}", filename);
-    match tokio::fs::read(&path).await {
-        Ok(data) => {
-            let content_type = if filename.ends_with(".html") {
-                "text/html; charset=utf-8"
-            } else {
-                "application/octet-stream"
-            };
-            let mut res = Response::new(Full::new(bytes::Bytes::from(data)));
-            res.headers_mut()
-                .insert("Content-Type", content_type.parse().unwrap());
-            Ok(res)
-        }
-        Err(_) => {
             let mut res = Response::new(Full::new(bytes::Bytes::from("not found")));
             *res.status_mut() = StatusCode::NOT_FOUND;
             Ok(res)
@@ -78,29 +84,35 @@ async fn serve_static(filename: &str) -> Result<Response<Full<bytes::Bytes>>, hy
     }
 }
 
-async fn handle_record(
-    _state: Arc<HttpState>,
-    req: Request<Incoming>,
-) -> Result<Response<Full<bytes::Bytes>>, hyper::Error> {
-    // Placeholder — will be implemented in Phase 7 with the recorder
-    let body = match req.method() {
-        &Method::POST => "recording placeholder",
-        _ => "method not allowed",
-    };
-    let mut res = Response::new(Full::new(bytes::Bytes::from(body)));
-    if req.method() != Method::POST {
-        *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
+async fn serve_static(filename: &str) -> Result<Response<Full<bytes::Bytes>>, hyper::Error> {
+    let path = format!("static/{filename}");
+    match tokio::fs::read(&path).await {
+        Ok(data) => {
+            let ct = if filename.ends_with(".html") { "text/html; charset=utf-8" }
+            else { "application/octet-stream" };
+            let mut res = Response::new(Full::new(bytes::Bytes::from(data)));
+            res.headers_mut().insert("Content-Type", ct.parse().unwrap());
+            Ok(res)
+        }
+        Err(_) => Ok(not_found()),
     }
+}
+
+fn json_ok<T: serde::Serialize>(val: &T) -> Result<Response<Full<bytes::Bytes>>, hyper::Error> {
+    let json = serde_json::to_string(val).unwrap_or_default();
+    let mut res = Response::new(Full::new(bytes::Bytes::from(json)));
+    res.headers_mut().insert("Content-Type", "application/json".parse().unwrap());
     Ok(res)
 }
 
-/// Return a JSON 200 response.
-pub fn json_response<T: serde::Serialize>(
-    data: &T,
-) -> Result<Response<Full<bytes::Bytes>>, hyper::Error> {
-    let json = serde_json::to_string(data).unwrap_or_default();
-    let mut res = Response::new(Full::new(bytes::Bytes::from(json)));
-    res.headers_mut()
-        .insert("Content-Type", "application/json".parse().unwrap());
-    Ok(res)
+fn error_response(msg: &str) -> Response<Full<bytes::Bytes>> {
+    let mut res = Response::new(Full::new(bytes::Bytes::from(msg.to_string())));
+    *res.status_mut() = StatusCode::CONFLICT;
+    res
+}
+
+fn not_found() -> Response<Full<bytes::Bytes>> {
+    let mut res = Response::new(Full::new(bytes::Bytes::from("not found")));
+    *res.status_mut() = StatusCode::NOT_FOUND;
+    res
 }
