@@ -4,6 +4,8 @@ Hybrid approach:
 1. Screen novelty baseline — rewards meaningful pixel change
 2. Per-game RAM scanners — config-driven progress signals
 3. Anti-grind diminishing returns
+4. RND exploration bonus (optional)
+5. Reward normalization (optional)
 
 All reward components are summed per step and clipped.
 """
@@ -43,12 +45,26 @@ class RewardConfig:
     min_reward: float = -10.0
     max_reward: float = 10.0
 
+    # RND exploration bonus
+    use_rnd: bool = False
+    rnd_scale: float = 0.1  # scaling factor for RND bonus
+
+    # Reward normalization
+    use_reward_norm: bool = False
+    reward_norm_tau: float = 5.0  # running mean/std tau
+
 
 class RewardSystem:
     """Computes reward from screen frames and optional RAM scanners."""
 
     def __init__(self, config: RewardConfig) -> None:
         self.config = config
+        self._rnd: RNDModule | None = None
+        self._reward_norm: RunningMeanStd | None = None
+        if config.use_rnd:
+            self._rnd = RNDModule()
+        if config.use_reward_norm:
+            self._reward_norm = RunningMeanStd(tau=config.reward_norm_tau)
         self.reset()
 
     def reset(self) -> None:
@@ -61,6 +77,10 @@ class RewardSystem:
         self._last_map_id: int | None = None
         self._last_tile_id: int | None = None
         self._tile_visits: set[int] = set()
+        if self._rnd is not None:
+            self._rnd.reset()
+        if self._reward_norm is not None:
+            self._reward_norm.reset()
 
     def compute(
         self,
@@ -210,3 +230,116 @@ class RewardSystem:
         # Hash the center-bottom region where the player usually stands
         bottom = frame[-16:, 64:96]
         return int(bottom.mean()) // 4  # crude 0-63 range
+
+
+# ---- RND (Random Network Distillation) ----------------------------
+
+
+class RNDModule:
+    """Random Network Distillation for exploration bonus.
+
+    Uses a fixed random network and a trained predictor network.
+    The prediction error indicates novelty — novel states have high error.
+    """
+
+    def __init__(self, input_dim: int = 144 * 160, hidden_dim: int = 128):
+        import torch
+        import torch.nn as nn
+
+        self.device = "cpu"  # Keep on CPU for simplicity
+
+        # Fixed random network (never trained)
+        self.target = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 64),
+        )
+
+        # Predictor network (trained to match target)
+        self.predictor = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 64),
+        )
+
+        # Freeze target parameters
+        for param in self.target.parameters():
+            param.requires_grad = False
+
+        self.optimizer = torch.optim.Adam(self.predictor.parameters(), lr=1e-4)
+        self._obs_mean = np.zeros(input_dim)
+        self._obs_sq_mean = np.ones(input_dim)
+        self._count = 0
+
+    def reset(self) -> None:
+        """Reset running statistics (call per episode)."""
+        pass  # Running stats persist across episodes
+
+    def compute_bonus(self, obs: np.ndarray) -> float:
+        """Compute exploration bonus for an observation.
+
+        Args:
+            obs: Flattened observation (C, H, W) or (H, W)
+
+        Returns:
+            Prediction error (novelty bonus).
+        """
+        import torch
+
+        # Flatten and normalize
+        flat = obs.flatten().astype(np.float32)
+        self._count += 1
+        self._obs_mean = self._obs_mean + (flat - self._obs_mean) / self._count
+        self._obs_sq_mean = self._obs_sq_mean + (flat**2 - self._obs_sq_mean) / self._count
+        std = np.sqrt(np.maximum(self._obs_sq_mean - self._obs_mean**2, 1e-8))
+        flat = (flat - self._obs_mean) / std
+
+        # Forward pass
+        with torch.no_grad():
+            target_out = self.target(torch.from_numpy(flat).unsqueeze(0))
+        predictor_out = self.predictor(torch.from_numpy(flat).unsqueeze(0))
+
+        # Prediction error
+        error = (target_out - predictor_out).pow(2).mean().item()
+
+        # Train predictor
+        loss = (target_out.detach() - predictor_out).pow(2).mean()
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return error
+
+
+# ---- Running Mean Std (for reward normalization) -------------------
+
+
+class RunningMeanStd:
+    """Welford's online algorithm for running mean and standard deviation."""
+
+    def __init__(self, tau: float = 5.0):
+        self.tau = tau
+        self.mean = 0.0
+        self.var = 1.0
+        self.count = 0.0
+
+    def reset(self) -> None:
+        self.mean = 0.0
+        self.var = 1.0
+        self.count = 0.0
+
+    def update(self, x: float) -> None:
+        self.count += 1.0
+        delta = x - self.mean
+        self.mean += delta / self.count
+        delta2 = x - self.mean
+        self.var += (delta * delta2 - self.var) / self.count
+
+    def normalize(self, x: float) -> float:
+        """Normalize reward using running statistics."""
+        std = np.sqrt(max(self.var, 1e-8))
+        return x / (std + 1e-8)

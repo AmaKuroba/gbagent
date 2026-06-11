@@ -197,3 +197,103 @@ class GBEnv(gym.Env):
 
     def close(self) -> None:
         self.client.stop()
+
+
+class SyncVectorGBEnv:
+    """Synchronous vectorized environment for PPO training.
+
+    Runs multiple GBEnv instances in parallel, each connected to a separate
+    emulator process. This enables efficient rollout collection for PPO.
+    """
+
+    def __init__(
+        self,
+        num_envs: int,
+        gbagent_urls: list[str] | None = None,
+        frame_stack: int = 4,
+        frame_skip: int = 4,
+        reward_config: RewardConfig | None = None,
+        max_steps: int = 10_000,
+    ):
+        self.num_envs = num_envs
+
+        # Default URLs: localhost:8767, 8768, 8769, ...
+        if gbagent_urls is None:
+            gbagent_urls = [f"ws://localhost:{8767 + i}/ws" for i in range(num_envs)]
+
+        self.envs = [
+            GBEnv(
+                gbagent_url=gbagent_urls[i],
+                frame_stack=frame_stack,
+                frame_skip=frame_skip,
+                reward_config=reward_config,
+                max_steps=max_steps,
+            )
+            for i in range(num_envs)
+        ]
+
+        # Observation and action spaces match single env
+        self.observation_space = self.envs[0].observation_space
+        self.action_space = self.envs[0].action_space
+
+    def reset(self) -> tuple[np.ndarray, dict[str, Any]]:
+        """Reset all environments.
+
+        Returns:
+            observations: (num_envs, C, H, W) stacked frames
+            infos: List of info dicts
+        """
+        obs_list = []
+        info_list = []
+        for env in self.envs:
+            obs, info = env.reset()
+            obs_list.append(obs)
+            info_list.append(info)
+
+        return np.stack(obs_list), {"infos": info_list}
+
+    def step(
+        self, actions: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
+        """Step all environments.
+
+        Args:
+            actions: (num_envs, 2) array of (dpad, button) actions
+
+        Returns:
+            observations: (num_envs, C, H, W)
+            rewards: (num_envs,)
+            terminateds: (num_envs,)
+            truncateds: (num_envs,)
+            infos: Dict with 'frame_gids' and 'reward_breakdowns'
+        """
+        obs_list = []
+        reward_list = []
+        terminated_list = []
+        truncated_list = []
+        frame_gid_list = []
+        breakdown_list = []
+
+        for i, env in enumerate(self.envs):
+            obs, reward, terminated, truncated, info = env.step(actions[i])
+            obs_list.append(obs)
+            reward_list.append(reward)
+            terminated_list.append(terminated)
+            truncated_list.append(truncated)
+            frame_gid_list.append(info.get("frame_gid", 0))
+            breakdown_list.append(info.get("reward_breakdown", {}))
+
+        return (
+            np.stack(obs_list),
+            np.array(reward_list, dtype=np.float32),
+            np.array(terminated_list, dtype=bool),
+            np.array(truncated_list, dtype=bool),
+            {
+                "frame_gids": frame_gid_list,
+                "reward_breakdowns": breakdown_list,
+            },
+        )
+
+    def close(self) -> None:
+        for env in self.envs:
+            env.close()
