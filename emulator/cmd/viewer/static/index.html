@@ -180,6 +180,16 @@
 
   <!-- Right: Controls -->
   <div class="panel-right">
+    <canvas id="reward-chart" width="200" height="28" style="width:100%;height:28px;margin:4px 0;"></canvas>
+    <canvas id="loss-chart" width="200" height="20" style="width:100%;height:20px;margin:2px 0;"></canvas>
+    <canvas id="epsilon-chart" width="200" height="20" style="width:100%;height:20px;margin:2px 0 4px;"></canvas>
+
+    <div style="display:flex;gap:0.5rem;font-size:0.65rem;color:var(--muted);padding:0 6px 4px;">
+      <span>loss <strong id="loss-val" style="color:var(--text)">—</strong></span>
+      <span>ε <strong id="eps-val" style="color:var(--text)">—</strong></span>
+      <span style="margin-left:auto;">sps <strong id="sps-val" style="color:var(--text)">—</strong></span>
+    </div>
+
     <button id="takeover-btn" class="takeover-off" onclick="toggleTakeover()">TAKE OVER</button>
 
     <div class="state-buttons">
@@ -257,6 +267,120 @@ function updateStatus(data) {
     driverStatus.className = driverConnected ? 'status-connected' : 'status-waiting';
   }
 }
+
+// Charts
+const rewardPoints = [];
+const lossPoints = [];
+const epsilonPoints = [];
+
+function addRewardPoint(total) {
+  const now = Date.now();
+  rewardPoints.push({ time: now, total });
+  while (rewardPoints.length && rewardPoints[0].time < now - 300000)
+    rewardPoints.shift();
+  drawRewardChart();
+}
+
+function addLossPoint(loss, epsilon, sps) {
+  document.getElementById('loss-val').textContent = loss.toFixed(4);
+  document.getElementById('eps-val').textContent = epsilon.toFixed(3);
+  document.getElementById('sps-val').textContent = sps != null ? Math.round(sps).toString() : '—';
+  const now = Date.now();
+  lossPoints.push({ time: now, loss });
+  epsilonPoints.push({ time: now, epsilon });
+  while (lossPoints.length && lossPoints[0].time < now - 300000)
+    lossPoints.shift();
+  while (epsilonPoints.length && epsilonPoints[0].time < now - 300000)
+    epsilonPoints.shift();
+  drawLossChart();
+  drawEpsilonChart();
+}
+
+function drawRewardChart() {
+  const c = document.getElementById('reward-chart');
+  if (!c) return;
+  const cx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  cx.clearRect(0, 0, w, h);
+  if (rewardPoints.length < 2) {
+    cx.fillStyle = '#666';
+    cx.font = '10px monospace';
+    cx.fillText('reward: waiting...', 4, 12);
+    return;
+  }
+  const vals = rewardPoints.map(r => r.total);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const range = max - min || 1;
+  cx.beginPath();
+  vals.forEach((v, i) => {
+    const x = (i / (vals.length - 1)) * w;
+    const y = h - ((v - min) / range) * (h - 4) - 2;
+    i === 0 ? cx.moveTo(x, y) : cx.lineTo(x, y);
+  });
+  cx.strokeStyle = '#4caf50';
+  cx.lineWidth = 2;
+  cx.stroke();
+  cx.fillStyle = '#aaa';
+  cx.font = '10px monospace';
+  cx.fillText(vals[vals.length-1].toFixed(2), 4, 10);
+}
+
+function drawLossChart() {
+  const c = document.getElementById('loss-chart');
+  if (!c) return;
+  const cx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  cx.clearRect(0, 0, w, h);
+  if (lossPoints.length < 2) {
+    cx.fillStyle = '#666';
+    cx.font = '9px monospace';
+    cx.fillText('loss: waiting...', 4, 12);
+    return;
+  }
+  const vals = lossPoints.map(r => r.loss);
+  const max = Math.max(...vals, 0.01);
+  cx.beginPath();
+  vals.forEach((v, i) => {
+    const x = (i / (vals.length - 1)) * w;
+    const y = h - (Math.min(v, max) / max) * (h - 4) - 2;
+    i === 0 ? cx.moveTo(x, y) : cx.lineTo(x, y);
+  });
+  cx.strokeStyle = '#ff9800';
+  cx.lineWidth = 1.5;
+  cx.stroke();
+  cx.fillStyle = '#aaa';
+  cx.font = '9px monospace';
+  cx.fillText(vals[vals.length-1].toFixed(4), 4, 10);
+}
+
+function drawEpsilonChart() {
+  const c = document.getElementById('epsilon-chart');
+  if (!c) return;
+  const cx = c.getContext('2d');
+  const w = c.width, h = c.height;
+  cx.clearRect(0, 0, w, h);
+  if (epsilonPoints.length < 2) {
+    cx.fillStyle = '#666';
+    cx.font = '9px monospace';
+    cx.fillText('epsilon: waiting...', 4, 12);
+    return;
+  }
+  const vals = epsilonPoints.map(r => r.epsilon);
+  const max = Math.max(...vals, 0.01);
+  cx.beginPath();
+  vals.forEach((v, i) => {
+    const x = (i / (vals.length - 1)) * w;
+    const y = h - (Math.min(v, max) / max) * (h - 4) - 2;
+    i === 0 ? cx.moveTo(x, y) : cx.lineTo(x, y);
+  });
+  cx.strokeStyle = '#9c27b0';
+  cx.lineWidth = 1.5;
+  cx.stroke();
+  cx.fillStyle = '#aaa';
+  cx.font = '9px monospace';
+  cx.fillText(vals[vals.length-1].toFixed(3), 4, 10);
+}
+
 function toggleTakeover() {
   takeoverActive = !takeoverActive;
   const btn = document.getElementById('takeover-btn');
@@ -333,6 +457,9 @@ function connect() {
         const data = JSON.parse(event.data);
         if (data.type === 'status') {
           updateStatus(data);
+        } else if (data.reward_total !== undefined) {
+          addRewardPoint(data.reward_total);
+          addLossPoint(data.loss || 0, data.epsilon || 0, data.sps);
         }
       } catch(e) {
         log(event.data);
