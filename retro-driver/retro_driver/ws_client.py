@@ -235,24 +235,37 @@ class ViewerClient:
         self._connected = threading.Event()
         self._req_id = 0
 
-    def start(self) -> None:
+    def start(self, *, retries: int = 10, interval: float = 1.0) -> None:
         if self._ws is not None:
             return
         self._stop_event.clear()
         self._responses.clear()
         self._req_id = 0
 
-        self._ws = WebSocketApp(
-            self._url,
-            on_open=lambda _: self._connected.set(),
-            on_message=self._on_message,
-            on_error=lambda _, e: self._stop_event.set(),
-            on_close=lambda _, __, ___: self._stop_event.set(),
-        )
-        t = threading.Thread(target=self._ws.run_forever, daemon=True)
-        t.start()
-        if not self._connected.wait(timeout=5):
-            raise ConnectionError(f"Failed to connect to viewer at {self._url}")
+        last_err: Exception | None = None
+        for _attempt in range(retries):
+            try:
+                self._ws = WebSocketApp(
+                    self._url,
+                    on_open=lambda _: self._connected.set(),
+                    on_message=self._on_message,
+                    on_error=lambda _, e: self._stop_event.set(),
+                    on_close=lambda _, __, ___: self._stop_event.set(),
+                )
+                self._connected.clear()
+                self._stop_event.clear()
+                t = threading.Thread(target=self._ws.run_forever, daemon=True)
+                t.start()
+                if self._connected.wait(timeout=5):
+                    return  # connected
+                last_err = ConnectionError(f"connect timeout ({self._url})")
+                self._ws.close()
+                self._ws = None
+            except Exception as e:
+                last_err = e
+                self._ws = None
+            time.sleep(interval)
+        raise ConnectionError(f"Failed to connect to viewer after {retries} attempts: {last_err}")
 
     def stop(self) -> None:
         self._stop_event.set()

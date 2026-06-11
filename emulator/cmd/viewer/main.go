@@ -33,6 +33,15 @@ type DashboardServer struct {
 	lastActMu   sync.Mutex
 	lastActDpad byte
 	lastActBtn  byte
+
+	// Connection status reported to the frontend.
+	statusMu sync.RWMutex
+	status   dashboardStatus
+}
+
+type dashboardStatus struct {
+	Emulator bool `json:"emulator"`
+	Driver   bool `json:"driver"`
 }
 
 func NewDashboardServer(hub *Hub, addr string, joypad *Joypad, emulator *EmulatorClient) *DashboardServer {
@@ -60,6 +69,34 @@ func (s *DashboardServer) ListenAndServe() error {
 	return http.ListenAndServe(s.addr, s.mux)
 }
 
+// SetDriverConnected updates the driver connection status.
+func (s *DashboardServer) SetDriverConnected(v bool) {
+	s.statusMu.Lock()
+	s.status.Driver = v
+	s.statusMu.Unlock()
+	s.broadcastStatus()
+}
+
+// SetEmulatorConnected updates the emulator connection status.
+func (s *DashboardServer) SetEmulatorConnected(v bool) {
+	s.statusMu.Lock()
+	s.status.Emulator = v
+	s.statusMu.Unlock()
+	s.broadcastStatus()
+}
+
+func (s *DashboardServer) broadcastStatus() {
+	s.statusMu.RLock()
+	status := s.status
+	s.statusMu.RUnlock()
+	data, _ := json.Marshal(map[string]any{
+		"type":     "status",
+		"emulator": status.Emulator,
+		"driver":   status.Driver,
+	})
+	s.hub.BroadcastText(data)
+}
+
 var dashboardUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -83,6 +120,20 @@ func (s *DashboardServer) handleWS(w http.ResponseWriter, r *http.Request) {
 		send: make(chan Message, 4096),
 	}
 	s.hub.register <- client
+
+	// Send current connection status immediately.
+	s.statusMu.RLock()
+	status := s.status
+	s.statusMu.RUnlock()
+	statusData, _ := json.Marshal(map[string]any{
+		"type":     "status",
+		"emulator": status.Emulator,
+		"driver":   status.Driver,
+	})
+	select {
+	case client.send <- Message{Type: 1, Data: statusData}:
+	default:
+	}
 
 	// Write pump
 	go func() {
@@ -125,7 +176,6 @@ func (s *DashboardServer) handleWS(w http.ResponseWriter, r *http.Request) {
 					s.joypad.Press(bits)
 					s.emulator.PressButton(buttonName(bits)) //nolint: errcheck
 				}
-				// Track last action for takeover demo recording
 				s.lastActMu.Lock()
 				s.lastActDpad, s.lastActBtn = decodeJoypad(bits)
 				s.lastActMu.Unlock()
@@ -227,15 +277,17 @@ func main() {
 
 	joypad := &Joypad{}
 
-	// Connect to emulator
+	// Connect to emulator (retry until ready)
 	emulator := NewEmulatorClient(*emulatorURL)
-	if err := emulator.Connect(); err != nil {
-		log.Fatalf("failed to connect to emulator: %v", err)
-	}
-	defer emulator.Close()
-	log.Printf("connected to emulator at %s", *emulatorURL)
+	go func() {
+		log.Printf("connecting to emulator at %s...", *emulatorURL)
+		if err := emulator.ConnectWithRetry(30, 2*time.Second); err != nil {
+			log.Fatalf("emulator: %v", err)
+		}
+		log.Printf("connected to emulator")
+	}()
 
-	// Dashboard server
+	// Dashboard server — starts immediately, works without emulator
 	dashboard := NewDashboardServer(hub, fmt.Sprintf(":%d", *port), joypad, emulator)
 	go func() {
 		log.Printf("dashboard: http://localhost:%d", *port)
@@ -270,6 +322,12 @@ func main() {
 			log.Fatalf("metrics server error: %v", err)
 		}
 	}()
+
+	// Wait for emulator connection before starting relay
+	for !emulator.Connected() {
+		time.Sleep(100 * time.Millisecond)
+	}
+	dashboard.SetEmulatorConnected(true)
 
 	// Relay loop: poll emulator at 60fps, broadcast frames to browser
 	frameTicker := time.NewTicker(time.Second / 60)

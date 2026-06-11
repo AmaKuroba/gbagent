@@ -921,82 +921,82 @@ func (a *APU) SetState(s APUState) {
 
 // syncToState copies sub-channel state into flat APUState fields.
 func (a *APU) syncToState() {
-	a.APUState.Pulse1Freq = a.ch1.frequency
-	a.APUState.Pulse1Accum = a.ch1.freqAccum
-	a.APUState.Pulse1DutyPos = a.ch1.dutyPos
-	a.APUState.Pulse1Duty = a.ch1.duty
-	a.APUState.Pulse1Vol = a.ch1.volume
-	a.APUState.Pulse1EnvTimer = a.ch1.envTimer
-	a.APUState.Pulse1EnvPeriod = a.ch1.envPeriod
-	a.APUState.Pulse1EnvDir = a.ch1.envDir
+	a.Pulse1Freq = a.ch1.frequency
+	a.Pulse1Accum = a.ch1.freqAccum
+	a.Pulse1DutyPos = a.ch1.dutyPos
+	a.Pulse1Duty = a.ch1.duty
+	a.Pulse1Vol = a.ch1.volume
+	a.Pulse1EnvTimer = a.ch1.envTimer
+	a.Pulse1EnvPeriod = a.ch1.envPeriod
+	a.Pulse1EnvDir = a.ch1.envDir
 
-	a.APUState.Pulse2Freq = a.ch2.frequency
-	a.APUState.Pulse2Accum = a.ch2.freqAccum
-	a.APUState.Pulse2DutyPos = a.ch2.dutyPos
-	a.APUState.Pulse2Duty = a.ch2.duty
-	a.APUState.Pulse2Vol = a.ch2.volume
-	a.APUState.Pulse2EnvTimer = a.ch2.envTimer
-	a.APUState.Pulse2EnvPeriod = a.ch2.envPeriod
-	a.APUState.Pulse2EnvDir = a.ch2.envDir
+	a.Pulse2Freq = a.ch2.frequency
+	a.Pulse2Accum = a.ch2.freqAccum
+	a.Pulse2DutyPos = a.ch2.dutyPos
+	a.Pulse2Duty = a.ch2.duty
+	a.Pulse2Vol = a.ch2.volume
+	a.Pulse2EnvTimer = a.ch2.envTimer
+	a.Pulse2EnvPeriod = a.ch2.envPeriod
+	a.Pulse2EnvDir = a.ch2.envDir
 
-	a.APUState.SweepShadowFreq = a.sweep.shadowFreq
-	a.APUState.SweepTimer = a.sweep.sweepTimer
-	a.APUState.SweepEnabled = a.sweep.sweepEnabled
-	a.APUState.SweepPeriod = a.sweep.sweepPeriod
-	a.APUState.SweepNegate = a.sweep.sweepNegate
-	a.APUState.SweepShift = a.sweep.sweepShift
+	a.SweepShadowFreq = a.sweep.shadowFreq
+	a.SweepTimer = a.sweep.sweepTimer
+	a.SweepEnabled = a.sweep.sweepEnabled
+	a.SweepPeriod = a.sweep.sweepPeriod
+	a.SweepNegate = a.sweep.sweepNegate
+	a.SweepShift = a.sweep.sweepShift
 
-	a.APUState.WaveFreq = a.ch3.frequency
-	a.APUState.WaveAccum = a.ch3.freqAccum
-	a.APUState.WaveSamplePos = a.ch3.samplePos
-	a.APUState.WaveOutLevel = a.ch3.outputLevel
+	a.WaveFreq = a.ch3.frequency
+	a.WaveAccum = a.ch3.freqAccum
+	a.WaveSamplePos = a.ch3.samplePos
+	a.WaveOutLevel = a.ch3.outputLevel
 
-	a.APUState.NoiseLFSR = a.ch4.lfsr
-	a.APUState.NoiseAccum = a.ch4.accum
-	a.APUState.NoiseVol = a.ch4.volume
-	a.APUState.NoiseEnvTimer = a.ch4.envTimer
-	a.APUState.NoiseEnvPeriod = a.ch4.envPeriod
-	a.APUState.NoiseEnvDir = a.ch4.envDir
+	a.NoiseLFSR = a.ch4.lfsr
+	a.NoiseAccum = a.ch4.accum
+	a.NoiseVol = a.ch4.volume
+	a.NoiseEnvTimer = a.ch4.envTimer
+	a.NoiseEnvPeriod = a.ch4.envPeriod
+	a.NoiseEnvDir = a.ch4.envDir
 }
 
 // syncFromState copies flat APUState fields back into the sub-channels.
 func (a *APU) syncFromState() {
-	a.ch1.frequency = a.APUState.Pulse1Freq
-	a.ch1.freqAccum = a.APUState.Pulse1Accum
-	a.ch1.dutyPos = a.APUState.Pulse1DutyPos
-	a.ch1.duty = a.APUState.Pulse1Duty
-	a.ch1.volume = a.APUState.Pulse1Vol
-	a.ch1.envTimer = a.APUState.Pulse1EnvTimer
-	a.ch1.envPeriod = a.APUState.Pulse1EnvPeriod
-	a.ch1.envDir = a.APUState.Pulse1EnvDir
+	a.ch1.frequency = a.Pulse1Freq
+	a.ch1.freqAccum = a.Pulse1Accum
+	a.ch1.dutyPos = a.Pulse1DutyPos
+	a.ch1.duty = a.Pulse1Duty
+	a.ch1.volume = a.Pulse1Vol
+	a.ch1.envTimer = a.Pulse1EnvTimer
+	a.ch1.envPeriod = a.Pulse1EnvPeriod
+	a.ch1.envDir = a.Pulse1EnvDir
 
-	a.ch2.frequency = a.APUState.Pulse2Freq
-	a.ch2.freqAccum = a.APUState.Pulse2Accum
-	a.ch2.dutyPos = a.APUState.Pulse2DutyPos
-	a.ch2.duty = a.APUState.Pulse2Duty
-	a.ch2.volume = a.APUState.Pulse2Vol
-	a.ch2.envTimer = a.APUState.Pulse2EnvTimer
-	a.ch2.envPeriod = a.APUState.Pulse2EnvPeriod
-	a.ch2.envDir = a.APUState.Pulse2EnvDir
+	a.ch2.frequency = a.Pulse2Freq
+	a.ch2.freqAccum = a.Pulse2Accum
+	a.ch2.dutyPos = a.Pulse2DutyPos
+	a.ch2.duty = a.Pulse2Duty
+	a.ch2.volume = a.Pulse2Vol
+	a.ch2.envTimer = a.Pulse2EnvTimer
+	a.ch2.envPeriod = a.Pulse2EnvPeriod
+	a.ch2.envDir = a.Pulse2EnvDir
 
-	a.sweep.shadowFreq = a.APUState.SweepShadowFreq
-	a.sweep.sweepTimer = a.APUState.SweepTimer
-	a.sweep.sweepEnabled = a.APUState.SweepEnabled
-	a.sweep.sweepPeriod = a.APUState.SweepPeriod
-	a.sweep.sweepNegate = a.APUState.SweepNegate
-	a.sweep.sweepShift = a.APUState.SweepShift
+	a.sweep.shadowFreq = a.SweepShadowFreq
+	a.sweep.sweepTimer = a.SweepTimer
+	a.sweep.sweepEnabled = a.SweepEnabled
+	a.sweep.sweepPeriod = a.SweepPeriod
+	a.sweep.sweepNegate = a.SweepNegate
+	a.sweep.sweepShift = a.SweepShift
 
-	a.ch3.frequency = a.APUState.WaveFreq
-	a.ch3.freqAccum = a.APUState.WaveAccum
-	a.ch3.samplePos = a.APUState.WaveSamplePos
-	a.ch3.outputLevel = a.APUState.WaveOutLevel
+	a.ch3.frequency = a.WaveFreq
+	a.ch3.freqAccum = a.WaveAccum
+	a.ch3.samplePos = a.WaveSamplePos
+	a.ch3.outputLevel = a.WaveOutLevel
 
-	a.ch4.lfsr = a.APUState.NoiseLFSR
-	a.ch4.accum = a.APUState.NoiseAccum
-	a.ch4.volume = a.APUState.NoiseVol
-	a.ch4.envTimer = a.APUState.NoiseEnvTimer
-	a.ch4.envPeriod = a.APUState.NoiseEnvPeriod
-	a.ch4.envDir = a.APUState.NoiseEnvDir
+	a.ch4.lfsr = a.NoiseLFSR
+	a.ch4.accum = a.NoiseAccum
+	a.ch4.volume = a.NoiseVol
+	a.ch4.envTimer = a.NoiseEnvTimer
+	a.ch4.envPeriod = a.NoiseEnvPeriod
+	a.ch4.envDir = a.NoiseEnvDir
 }
 
 func (a *APU) GetAudioBuffer() []int16 {

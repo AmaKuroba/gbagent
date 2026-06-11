@@ -126,6 +126,11 @@
   .state-btn.load { background:#ff9800; color:#fff; }
   .state-btn:active { opacity:0.7; }
 
+  .connection-status { padding: 8px; font-size: 0.65rem; }
+  .connection-status div { padding: 3px 0; }
+  .status-connected { color: var(--green); }
+  .status-waiting { color: var(--muted); }
+
   .log-panel {
     flex: 1;
     display: flex;
@@ -182,6 +187,11 @@
       <button class="state-btn load" onclick="loadState()">LOAD</button>
     </div>
 
+    <div class="connection-status">
+      <div id="emulator-status" class="status-waiting">Emulator: Waiting...</div>
+      <div id="driver-status" class="status-waiting">Driver: Waiting...</div>
+    </div>
+
     <div class="joypad">
       <div class="key empty"></div>
       <div class="key" data-gb="UP">&uarr;</div>
@@ -228,6 +238,25 @@ function log(msg, cls) {
 
 // Takeover
 let takeoverActive = false;
+let emulatorConnected = false;
+let driverConnected = false;
+
+function updateStatus(data) {
+  if (data.emulator !== undefined) emulatorConnected = data.emulator;
+  if (data.driver !== undefined) driverConnected = data.driver;
+
+  const emulatorStatus = document.getElementById('emulator-status');
+  const driverStatus = document.getElementById('driver-status');
+
+  if (emulatorStatus) {
+    emulatorStatus.textContent = emulatorConnected ? 'Emulator: Connected' : 'Emulator: Waiting...';
+    emulatorStatus.className = emulatorConnected ? 'status-connected' : 'status-waiting';
+  }
+  if (driverStatus) {
+    driverStatus.textContent = driverConnected ? 'Driver: Connected' : 'Driver: Waiting...';
+    driverStatus.className = driverConnected ? 'status-connected' : 'status-waiting';
+  }
+}
 function toggleTakeover() {
   takeoverActive = !takeoverActive;
   const btn = document.getElementById('takeover-btn');
@@ -301,7 +330,10 @@ function connect() {
       }
     } else {
       try {
-        JSON.parse(event.data);
+        const data = JSON.parse(event.data);
+        if (data.type === 'status') {
+          updateStatus(data);
+        }
       } catch(e) {
         log(event.data);
       }

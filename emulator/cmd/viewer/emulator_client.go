@@ -1,10 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -16,16 +17,16 @@ type EmulatorClient struct {
 
 	conn *websocket.Conn
 	mu   sync.Mutex
-	buf  bytes.Buffer
 
 	reqID   int
 	pending map[int]chan json.RawMessage
 	lock    sync.Mutex
 
-	done chan struct{}
+	done      chan struct{}
+	connected bool
 }
 
-// NewEmulatorClient creates a new client connected to the given WebSocket URL.
+// NewEmulatorClient creates a new client for the given WebSocket URL.
 func NewEmulatorClient(url string) *EmulatorClient {
 	return &EmulatorClient{
 		url:     url,
@@ -34,19 +35,48 @@ func NewEmulatorClient(url string) *EmulatorClient {
 	}
 }
 
-// Connect establishes the WebSocket connection and starts the read loop.
+// Connect establishes the WebSocket connection (fail-fast).
 func (c *EmulatorClient) Connect() error {
-	conn, _, err := websocket.DefaultDialer.Dial(c.url, nil)
+	conn, resp, err := websocket.DefaultDialer.Dial(c.url, nil)
+	if resp != nil {
+		resp.Body.Close() //nolint: errcheck
+	}
 	if err != nil {
 		return fmt.Errorf("emulator ws dial: %w", err)
 	}
 	c.conn = conn
+	c.connected = true
 	go c.readLoop()
 	return nil
 }
 
+// ConnectWithRetry polls until the emulator is reachable.
+func (c *EmulatorClient) ConnectWithRetry(maxAttempts int, interval time.Duration) error {
+	for i := range maxAttempts {
+		conn, resp, err := websocket.DefaultDialer.Dial(c.url, nil)
+		if resp != nil {
+			resp.Body.Close() //nolint: errcheck
+		}
+		if err == nil {
+			c.conn = conn
+			c.connected = true
+			go c.readLoop()
+			return nil
+		}
+		log.Printf("emulator not ready, retrying in %s (%d/%d)", interval, i+1, maxAttempts)
+		time.Sleep(interval)
+	}
+	return fmt.Errorf("emulator not reachable after %d attempts", maxAttempts)
+}
+
+// Connected returns whether the client is currently connected.
+func (c *EmulatorClient) Connected() bool {
+	return c.connected
+}
+
 // Close shuts down the client.
 func (c *EmulatorClient) Close() {
+	c.connected = false
 	close(c.done)
 	if c.conn != nil {
 		c.conn.Close() //nolint: errcheck
@@ -54,7 +84,7 @@ func (c *EmulatorClient) Close() {
 }
 
 func (c *EmulatorClient) readLoop() {
-	defer close(c.done)
+	defer func() { c.connected = false }()
 	for {
 		_, msg, err := c.conn.ReadMessage()
 		if err != nil {
@@ -81,8 +111,8 @@ func (c *EmulatorClient) readLoop() {
 }
 
 func (c *EmulatorClient) call(method string, params any) (json.RawMessage, error) {
-	if c.conn == nil {
-		return nil, fmt.Errorf("not connected")
+	if !c.connected {
+		return nil, fmt.Errorf("not connected to emulator")
 	}
 
 	c.lock.Lock()
@@ -203,5 +233,3 @@ func (c *EmulatorClient) ReadRAM(addr int) (int, error) {
 	}
 	return v, nil
 }
-
-

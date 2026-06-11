@@ -145,7 +145,7 @@ func (b *mcpBridge) LoadState(path string) error {
 		if err != nil {
 			return err
 		}
-		defer f.Close()
+		defer f.Close() //nolint: errcheck
 
 		var state gb.EmulatorState
 		if err := gob.NewDecoder(f).Decode(&state); err != nil {
@@ -217,7 +217,7 @@ func loadSavedState(bridge *mcpBridge, path string) error {
 	if err != nil {
 		return fmt.Errorf("open state file: %w", err)
 	}
-	defer f.Close()
+	defer f.Close() //nolint: errcheck
 
 	var state gb.EmulatorState
 	if err := gob.NewDecoder(f).Decode(&state); err != nil {

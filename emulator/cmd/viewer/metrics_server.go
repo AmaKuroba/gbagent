@@ -64,7 +64,6 @@ func (s *MetricsServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	log.Println("metrics ws: driver connected")
 	defer log.Println("metrics ws: driver disconnected")
 
-	// Read loop: accept JSON-RPC-like messages from the driver.
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
@@ -72,6 +71,7 @@ func (s *MetricsServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 
 		var msg struct {
+			ID     any             `json:"id"`
 			Method string          `json:"method"`
 			Params json.RawMessage `json:"params,omitempty"`
 		}
@@ -82,8 +82,10 @@ func (s *MetricsServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		switch msg.Method {
 		case "report_reward":
 			s.handleReportReward(msg.Params)
+			s.sendResponse(conn, msg.ID, "ok")
 		case "get_takeover":
-			s.sendResponse(conn, "get_takeover", s.TakeoverFunc != nil && s.TakeoverFunc())
+			result := s.TakeoverFunc != nil && s.TakeoverFunc()
+			s.sendResponse(conn, msg.ID, result)
 		case "set_takeover":
 			var params struct {
 				Value bool `json:"value"`
@@ -91,11 +93,13 @@ func (s *MetricsServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(msg.Params, &params); err == nil && s.SetTakeoverFunc != nil {
 				s.SetTakeoverFunc(params.Value)
 			}
-			s.sendResponse(conn, "set_takeover", "ok")
+			s.sendResponse(conn, msg.ID, "ok")
 		case "get_last_action":
 			if s.GetLastActionFunc != nil {
 				dpad, btn := s.GetLastActionFunc()
-				s.sendResponse(conn, "get_last_action", map[string]any{"dpad": dpad, "btn": btn})
+				s.sendResponse(conn, msg.ID, map[string]any{"dpad": dpad, "btn": btn})
+			} else {
+				s.sendResponse(conn, msg.ID, map[string]any{"dpad": 0, "btn": 0})
 			}
 		}
 	}
@@ -122,10 +126,11 @@ func (s *MetricsServer) handleReportReward(params json.RawMessage) {
 	s.hub.BroadcastText(data)
 }
 
-func (s *MetricsServer) sendResponse(conn *websocket.Conn, method string, result any) {
+func (s *MetricsServer) sendResponse(conn *websocket.Conn, id any, result any) {
 	resp := map[string]any{
-		"method": method,
-		"result": result,
+		"jsonrpc": "2.0",
+		"id":      id,
+		"result":  result,
 	}
 	data, _ := json.Marshal(resp)
 	conn.WriteMessage(websocket.TextMessage, data) //nolint: errcheck
