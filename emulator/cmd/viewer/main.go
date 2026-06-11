@@ -316,6 +316,9 @@ func main() {
 		defer dashboard.lastActMu.Unlock()
 		return dashboard.lastActDpad, dashboard.lastActBtn
 	}
+	metricsServer.SetDriverConnected = func(v bool) {
+		dashboard.SetDriverConnected(v)
+	}
 	go func() {
 		log.Printf("metrics: ws://localhost:%d/metrics", *metricsPort)
 		if err := metricsServer.ListenAndServe(); err != nil {

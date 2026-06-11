@@ -24,6 +24,9 @@ type MetricsServer struct {
 
 	// GetLastActionFunc returns the last human action (dpad, btn).
 	GetLastActionFunc func() (dpad, btn byte)
+
+	// SetDriverConnected is called when the driver connects/disconnects.
+	SetDriverConnected func(bool)
 }
 
 // NewMetricsServer creates a new metrics server.
@@ -62,7 +65,15 @@ func (s *MetricsServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close() //nolint: errcheck
 
 	log.Println("metrics ws: driver connected")
-	defer log.Println("metrics ws: driver disconnected")
+	if s.SetDriverConnected != nil {
+		s.SetDriverConnected(true)
+	}
+	defer func() {
+		log.Println("metrics ws: driver disconnected")
+		if s.SetDriverConnected != nil {
+			s.SetDriverConnected(false)
+		}
+	}()
 
 	for {
 		_, message, err := conn.ReadMessage()
