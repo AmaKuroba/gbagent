@@ -5,17 +5,19 @@ use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
-use http_body_util::Full;
+use http_body_util::{BodyExt, Full};
 use tokio::net::TcpListener;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 use crate::hub::Hub;
 use crate::recorder::Recorder;
+use crate::EmulatorCmd;
 
 pub struct HttpState {
     pub hub: Arc<Hub>,
     pub train_tx: watch::Sender<bool>,
     pub rec: Arc<Recorder>,
+    pub cmd_tx: mpsc::UnboundedSender<EmulatorCmd>,
 }
 
 pub async fn serve(state: Arc<HttpState>, addr: &str) -> anyhow::Result<()> {
@@ -43,8 +45,8 @@ async fn handle_request(
     state: Arc<HttpState>,
     req: Request<Incoming>,
 ) -> Result<Response<Full<bytes::Bytes>>, hyper::Error> {
-    let path = req.uri().path().to_string();
     let method = req.method().clone();
+    let path = req.uri().path().to_string();
 
     match (&method, path.as_str()) {
         (&Method::GET, "/") => serve_static("index.html").await,
@@ -76,12 +78,35 @@ async fn handle_request(
         (&Method::GET, "/record/status") => {
             json_ok(&serde_json::json!(state.rec.status()))
         }
+        (&Method::POST, "/state/save") => {
+            let body = read_body(req).await;
+            if let Some(path) = body.get("path").and_then(|v| v.as_str()) {
+                let _ = state.cmd_tx.send(EmulatorCmd::SaveState(path.to_string()));
+                json_ok(&serde_json::json!({"status": "ok"}))
+            } else {
+                Ok(error_response("missing path"))
+            }
+        }
+        (&Method::POST, "/state/load") => {
+            let body = read_body(req).await;
+            if let Some(path) = body.get("path").and_then(|v| v.as_str()) {
+                let _ = state.cmd_tx.send(EmulatorCmd::LoadState(path.to_string()));
+                json_ok(&serde_json::json!({"status": "ok"}))
+            } else {
+                Ok(error_response("missing path"))
+            }
+        }
         _ => {
             let mut res = Response::new(Full::new(bytes::Bytes::from("not found")));
             *res.status_mut() = StatusCode::NOT_FOUND;
             Ok(res)
         }
     }
+}
+
+async fn read_body(req: Request<Incoming>) -> serde_json::Value {
+    let body_bytes = req.collect().await.map(|c| c.to_bytes()).unwrap_or_default();
+    serde_json::from_slice(&body_bytes).unwrap_or(serde_json::Value::Null)
 }
 
 async fn serve_static(filename: &str) -> Result<Response<Full<bytes::Bytes>>, hyper::Error> {

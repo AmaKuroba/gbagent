@@ -2,16 +2,18 @@ use std::sync::Arc;
 
 use futures_util::StreamExt;
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::hub::{BroadcastMsg, Hub};
 use crate::joypad::{self, Joypad};
+use crate::EmulatorCmd;
 
-/// Start the WebSocket server on the given address.
 pub async fn serve(
     hub: Arc<Hub>,
     joypad: Arc<Joypad>,
+    cmd_tx: mpsc::UnboundedSender<EmulatorCmd>,
     addr: &str,
 ) -> anyhow::Result<()> {
     let listener = TcpListener::bind(addr).await?;
@@ -21,9 +23,10 @@ pub async fn serve(
         let (stream, peer) = listener.accept().await?;
         let hub = hub.clone();
         let joypad = joypad.clone();
+        let cmd_tx = cmd_tx.clone();
         log::info!("ws: client connected from {peer}");
         tokio::spawn(async move {
-            if let Err(e) = handle_client(hub, joypad, stream).await {
+            if let Err(e) = handle_client(hub, joypad, cmd_tx, stream).await {
                 log::warn!("ws: client {peer} error: {e}");
             }
             log::info!("ws: client disconnected {peer}");
@@ -34,6 +37,7 @@ pub async fn serve(
 async fn handle_client(
     hub: Arc<Hub>,
     joypad: Arc<Joypad>,
+    cmd_tx: mpsc::UnboundedSender<EmulatorCmd>,
     stream: tokio::net::TcpStream,
 ) -> anyhow::Result<()> {
     let ws_stream = accept_async(stream).await?;
@@ -59,59 +63,46 @@ async fn handle_client(
         }
     });
 
-    // Read loop: handle incoming messages
     while let Some(msg) = ws_read.next().await {
         let msg = msg?;
         match msg {
             Message::Text(text) => {
-                handle_text_message(&joypad, &text);
+                handle_text_message(&joypad, &cmd_tx, &text);
             }
             Message::Close(_) => break,
             _ => {}
         }
     }
 
-    // Client disconnected — release all buttons
     joypad.release_all();
     write_task.abort();
     Ok(())
 }
 
-fn handle_text_message(joypad: &Joypad, text: &str) {
-    // Quick parse — skip full deserialization overhead for simple key events
+fn handle_text_message(joypad: &Joypad, cmd_tx: &mpsc::UnboundedSender<EmulatorCmd>, text: &str) {
     if text.contains("\"key\"") {
-        // Keyboard event: {"key":"w","pressed":true}
         let is_press = text.contains("\"pressed\":true") || text.contains("\"pressed\": true");
-        // Extract key name
         if let Some(key_start) = text.find("\"key\":\"") {
             let val_start = key_start + 7;
             if let Some(val_end) = text[val_start..].find('"') {
                 let key = &text[val_start..val_start + val_end];
                 if let Some(bits) = joypad::key_to_bits(key) {
-                    if is_press {
-                        joypad.press(bits);
-                    } else {
-                        joypad.release(bits);
-                    }
+                    if is_press { joypad.press(bits); } else { joypad.release(bits); }
                 }
             }
         }
     } else if text.contains("\"takeover\"") {
-        // Takeover toggle: {"takeover":true} or {"takeover":false}
         let takeover = text.contains("\"takeover\":true") || text.contains("\"takeover\": true");
-        log::info!("takeover: {}", takeover);
-        if takeover {
-            joypad.release_all();
-        }
+        if takeover { joypad.release_all(); }
     } else if text.contains("\"save_state\"") {
-        // Save state: {"save_state":"path"}
         if let Some(path) = extract_string_field(text, "\"save_state\"") {
             log::info!("save state requested: {path}");
+            let _ = cmd_tx.send(EmulatorCmd::SaveState(path));
         }
     } else if text.contains("\"load_state\"") {
-        // Load state: {"load_state":"path"}
         if let Some(path) = extract_string_field(text, "\"load_state\"") {
             log::info!("load state requested: {path}");
+            let _ = cmd_tx.send(EmulatorCmd::LoadState(path));
         }
     }
 }
@@ -129,39 +120,49 @@ fn extract_string_field(text: &str, _field: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::joypad::JOYPAD_A;
+    use tokio::sync::mpsc;
 
-    fn test_joypad() -> std::sync::Arc<Joypad> {
-        std::sync::Arc::new(Joypad::new())
+    fn test_joypad() -> Arc<Joypad> {
+        Arc::new(Joypad::new())
+    }
+
+    fn dummy_cmd_tx() -> mpsc::UnboundedSender<EmulatorCmd> {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        tx
     }
 
     #[test]
     fn test_handle_key_press() {
         let j = test_joypad();
-        handle_text_message(&j, r#"{"key":"k","pressed":true}"#);
+        let tx = dummy_cmd_tx();
+        handle_text_message(&j, &tx, r#"{"key":"k","pressed":true}"#);
         assert_eq!(j.state(), JOYPAD_A);
     }
 
     #[test]
     fn test_handle_key_release() {
         let j = test_joypad();
-        handle_text_message(&j, r#"{"key":"k","pressed":true}"#);
-        handle_text_message(&j, r#"{"key":"k","pressed":false}"#);
+        let tx = dummy_cmd_tx();
+        handle_text_message(&j, &tx, r#"{"key":"k","pressed":true}"#);
+        handle_text_message(&j, &tx, r#"{"key":"k","pressed":false}"#);
         assert!(j.is_idle());
     }
 
     #[test]
     fn test_handle_invalid_key() {
         let j = test_joypad();
-        handle_text_message(&j, r#"{"key":"z","pressed":true}"#);
-        assert!(j.is_idle(), "invalid key should not press anything");
+        let tx = dummy_cmd_tx();
+        handle_text_message(&j, &tx, r#"{"key":"z","pressed":true}"#);
+        assert!(j.is_idle());
     }
 
     #[test]
     fn test_handle_takeover_clears_joypad() {
         let j = test_joypad();
+        let tx = dummy_cmd_tx();
         j.press(JOYPAD_A);
-        handle_text_message(&j, r#"{"takeover":true}"#);
-        assert!(j.is_idle(), "takeover should release all buttons");
+        handle_text_message(&j, &tx, r#"{"takeover":true}"#);
+        assert!(j.is_idle());
     }
 
     #[test]
@@ -177,16 +178,42 @@ mod tests {
     }
 
     #[test]
+    fn test_handle_save_state_sends_command() {
+        let j = test_joypad();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        handle_text_message(&j, &tx, r#"{"save_state":"test.sav"}"#);
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            EmulatorCmd::SaveState(p) => assert_eq!(p, "test.sav"),
+            _ => panic!("expected SaveState"),
+        }
+    }
+
+    #[test]
+    fn test_handle_load_state_sends_command() {
+        let j = test_joypad();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        handle_text_message(&j, &tx, r#"{"load_state":"test.sav"}"#);
+        let cmd = rx.try_recv().unwrap();
+        match cmd {
+            EmulatorCmd::LoadState(p) => assert_eq!(p, "test.sav"),
+            _ => panic!("expected LoadState"),
+        }
+    }
+
+    #[test]
     fn test_handle_text_trash() {
         let j = test_joypad();
-        handle_text_message(&j, "not json at all {{{{{{");
+        let tx = dummy_cmd_tx();
+        handle_text_message(&j, &tx, "not json at all {{{{{{");
         assert!(j.is_idle());
     }
 
     #[test]
     fn test_handle_text_empty() {
         let j = test_joypad();
-        handle_text_message(&j, "");
+        let tx = dummy_cmd_tx();
+        handle_text_message(&j, &tx, "");
         assert!(j.is_idle());
     }
 }

@@ -73,6 +73,26 @@ impl Emulator {
     pub fn description(&self) -> String {
         self.gb.description(80)
     }
+
+    /// Save cartridge RAM (battery save) to a file.
+    /// This captures game progress (saved games, party, etc.).
+    pub fn save_state(&mut self, path: &str) -> Result<()> {
+        let ram = self.gb.ram_data_eager();
+        std::fs::write(path, &ram)
+            .map_err(|e| anyhow::anyhow!("save state: {e}"))?;
+        log::info!("state saved: {path} ({} bytes)", ram.len());
+        Ok(())
+    }
+
+    /// Load cartridge RAM from a file and inject it.
+    /// Call after reset to restore game progress.
+    pub fn load_state(&mut self, path: &str) -> Result<()> {
+        let ram = std::fs::read(path)
+            .map_err(|e| anyhow::anyhow!("load state: {e}"))?;
+        self.gb.set_ram_data(ram.clone());
+        log::info!("state loaded: {path} ({} bytes)", ram.len());
+        Ok(())
+    }
 }
 
 #[cfg(test)]

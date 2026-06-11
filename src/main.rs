@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use clap::Parser;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 use boytacean::pad::PadKey;
 
@@ -19,7 +19,12 @@ mod ws;
 use agent::{PPOAgent, PPOConfig, AgentStats, Transition};
 use reward::RewardSystem;
 
-#[allow(unused_mut, dead_code)]
+/// Commands from WS/HTTP that need the main loop's emulator access.
+#[derive(Debug, Clone)]
+pub enum EmulatorCmd {
+    SaveState(String),
+    LoadState(String),
+}
 
 #[derive(Parser)]
 #[command(name = "rust-gbagent", about = "Game Boy RL agent")]
@@ -56,6 +61,7 @@ async fn main() -> Result<()> {
     let joypad = Arc::new(joypad::Joypad::new());
     let (train_tx, mut train_rx) = watch::channel(cli.train);
     let rec = Arc::new(recorder::Recorder::new());
+    let (emu_cmd_tx, mut emu_cmd_rx) = mpsc::unbounded_channel::<EmulatorCmd>();
 
     // Read ROM
     let rom_data = std::fs::read(&cli.rom)
@@ -91,6 +97,7 @@ async fn main() -> Result<()> {
         hub: hub.clone(),
         train_tx,
         rec: rec.clone(),
+        cmd_tx: emu_cmd_tx.clone(),
     });
 
     // Start HTTP
@@ -100,7 +107,12 @@ async fn main() -> Result<()> {
     // Start WS
     let ws_hub = hub.clone();
     let ws_joypad = joypad.clone();
-    tokio::spawn(async move { if let Err(e) = ws::serve(ws_hub, ws_joypad, "0.0.0.0:8766").await { log::error!("ws: {e}"); } });
+    let ws_cmd_tx = emu_cmd_tx.clone();
+    tokio::spawn(async move {
+        if let Err(e) = ws::serve(ws_hub, ws_joypad, ws_cmd_tx, "0.0.0.0:8766").await {
+            log::error!("ws: {e}");
+        }
+    });
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     log::info!("ready: http://localhost:8765  ws://localhost:8766");
@@ -272,6 +284,22 @@ async fn main() -> Result<()> {
         let elapsed = frame_start.elapsed();
         if elapsed < frame_interval {
             tokio::time::sleep(frame_interval - elapsed).await;
+        }
+
+        // Process external commands (save/load state)
+        while let Ok(cmd) = emu_cmd_rx.try_recv() {
+            match cmd {
+                EmulatorCmd::SaveState(path) => {
+                    if let Err(e) = gb.save_state(&path) {
+                        log::warn!("save state failed: {e}");
+                    }
+                }
+                EmulatorCmd::LoadState(path) => {
+                    if let Err(e) = gb.load_state(&path) {
+                        log::warn!("load state failed: {e}");
+                    }
+                }
+            }
         }
     }
 }
