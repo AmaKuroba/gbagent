@@ -7,7 +7,7 @@ Reward: Screen novelty baseline + optional RAM scanners
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
 import gymnasium as gym
 import numpy as np
@@ -16,9 +16,6 @@ from PIL import Image
 
 from retro_driver.reward import RewardConfig, RewardSystem
 from retro_driver.ws_client import GBWSClient
-
-if TYPE_CHECKING:
-    from retro_driver.dqn import FrameStore
 
 
 DPAD_MAP = ["", "up", "down", "left", "right"]
@@ -42,8 +39,6 @@ class GBEnv(gym.Env):
         frame_skip: int = 4,
         reward_config: RewardConfig | None = None,
         max_steps: int = 10_000,
-        frame_store: FrameStore | None = None,
-        boot_frames: int = 60,
     ) -> None:
         super().__init__()
 
@@ -54,7 +49,6 @@ class GBEnv(gym.Env):
 
         self.client = GBWSClient(gbagent_url)
         self.reward = RewardSystem(reward_config or RewardConfig())
-        self.frame_store = frame_store
 
         self.observation_space = spaces.Box(
             low=0,
@@ -98,17 +92,11 @@ class GBEnv(gym.Env):
         for _ in range(self.frame_stack):
             img = self._get_screen()
             frame = np.array(img, dtype=np.uint8)
-            if self.frame_store is not None:
-                self.frame_store.add(frame)
             self._frames.append(frame)
             self._prev_frame = frame
             self.client.wait_frames(1)
 
-        first_gid = (
-            self.frame_store.next_gid - self.frame_stack if self.frame_store is not None else 0
-        )
-
-        return self._stack(), {"frame_gid": first_gid}
+        return self._stack(), {}
 
     # ---- step ----------------------------------------------------------
 
@@ -132,12 +120,6 @@ class GBEnv(gym.Env):
 
         frame = np.array(img, dtype=np.uint8)
 
-        if self.frame_store is not None:
-            new_gid = self.frame_store.add(frame)
-            current_stack_start_gid = new_gid - (self.frame_stack - 1)
-        else:
-            current_stack_start_gid = 0
-
         self._frames.pop(0)
         self._frames.append(frame)
 
@@ -152,7 +134,6 @@ class GBEnv(gym.Env):
         info = {
             "step": self._step_count,
             "frames": self._step_count * self.frame_skip,
-            "frame_gid": current_stack_start_gid,
             "reward_breakdown": self.reward.last_breakdown(),
         }
 

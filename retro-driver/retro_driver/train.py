@@ -13,8 +13,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
-
 from retro_driver.env import GBEnv
 from retro_driver.ppo import PPOAgent, PPOConfig
 from retro_driver.reward import RewardConfig

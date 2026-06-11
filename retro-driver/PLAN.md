@@ -43,12 +43,13 @@ Input (4, 144, 160)
 
 ### Algorithm
 
-Double DQN with:
-- Experience replay (100k transitions, individual frames stored in ring buffer)
-- Epsilon-greedy exploration (linear decay from 1.0 to 0.01 over 50k steps)
-- Target network (hard update every N steps)
-- LSTM sequence training (seq_len=8, zero-initialized hidden per sequence)
-- Multi-discrete actions via Dueling Q with shared value stream
+PPO (Proximal Policy Optimization) with:
+- ViT-Small encoder (patch-based, resize to 144×144)
+- LSTM temporal memory (256 hidden, carries across episode)
+- Dual-head policy (dpad: 5 actions, buttons: 4 actions) + value head
+- GAE (λ=0.95) for advantage estimation
+- Clip-based surrogate loss (ε=0.2)
+- Entropy bonus for exploration
 
 ## Reward Design (Hybrid)
 

@@ -5,7 +5,7 @@
 Two packages in a monorepo, no shared dependencies:
 
 - **`emulator/`** — Go. Game Boy emulator core + JSON-RPC server.
-- **`retro-driver/`** — Python (uv). RL agent (DQN) that connects to the emulator via WebSocket.
+- **`retro-driver/`** — Python (uv). RL agent (PPO+ViT) that connects to the emulator via WebSocket.
 
 Entry points: `emulator/cmd/gbagent/main.go`, `emulator/cmd/viewer/main.go`, `retro-driver/retro_driver/train.py`
 
