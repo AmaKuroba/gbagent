@@ -188,10 +188,17 @@ class GBAGEnv(gym.Env):
                 retro_data.add_custom_integration(str(resolved))
                 print(f"  ROM dir: {resolved}")
 
+        # Resolve state: if the file doesn't exist, fall back to power-on default
+        state_to_use: retro.State | str = state
+        if isinstance(state, str) and state not in ("__default__", "__none__"):
+            if retro_data.get_file_path(game, f"{state}.state") is None:
+                print(f"  ⚠ State '{state}' not found for '{game}', using power-on default")
+                state_to_use = retro.State.DEFAULT
+
         # Create the underlying Retro environment
         self._env = retro.make(
             game=game,
-            state=state,
+            state=state_to_use,
             use_restricted_actions=retro.Actions.DISCRETE,
             render_mode=render_mode if render_mode == "human" else None,
             **scenario_kwargs,
