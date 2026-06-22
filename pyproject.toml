@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gbagent"
+version = "0.1.0"
+description = "Game Boy RL agent — PPO + ViT trained via Stable-Retro"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+
+dependencies = [
+    "stable-retro>=0.3.0",
+    "gymnasium>=1.0.0",
+    "numpy>=1.26",
+    "opencv-python>=4.9",
+    "PyYAML>=6.0",
+    "tensorflow>=2.16",
+    "keras>=3.3",
+    "aiohttp>=3.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+onnx = [
+    "tf2onnx>=1.16",
+    "onnxruntime>=1.17",
+]
+export = [
+    "gbagent[onnx]",
+]
+inference = [
+    "onnxruntime>=1.17",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+indent-width = 4
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gbagent*"]
+
+

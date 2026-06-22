@@ -1,0 +1,159 @@
+# GBAGent — Pokemon Emerald (GBA) configuration
+# ──────────────────────────────────────────────────────────────────────
+#
+# ⚠ UNDER CONSTRUCTION ⚠
+#
+# Exact RAM addresses are NOT yet confirmed for the stable-retro US ROM.
+# This file documents the data layout so addresses can be filled in once
+# the pokeemerald disassembly is built for the target ROM.
+#
+# See `_template.yaml` for a full reference of all scanner types.
+#
+# ── Context ──────────────────────────────────────────────────────────
+#
+# Pokemon Emerald (GBA) stores game state in two main save blocks in
+# EWRAM (0x02000000+).  The pret/pokeemerald decompilation
+# (https://github.com/pret/pokeemerald) provides C struct definitions:
+#
+#   gSaveblock1   →  struct SaveBlock1   (EWRAM)
+#   gSaveblock2   →  struct SaveBlock2   (EWRAM)
+#
+# Key member offsets within SaveBlock1 (from include/global.h):
+#
+#   Offset  Type                  Field
+#   ──────────────────────────────────────────────────────────────────
+#   0x0000  struct Coords16       pos       (x/s16, y/s16)
+#   0x0004  struct WarpData       location  (mapGroup, mapNum, warpId,
+#                                            x/s16, y/s16  → 10 bytes)
+#   0x0234  u8                    playerPartyCount
+#   0x0238  struct Pokemon[6]     playerParty
+#   0x0490  u32                   money
+#   0x0494  u16                   coins
+#
+# The Pokemon struct (include/pokemon.h) inside the party:
+#
+#   Offset  Type    Field
+#   ──────────────────────────────────────────────────────────────────
+#   +0x00   BoxPokemon box       (80 bytes – personality, species,
+#                                 heldItem, experience, OT, etc.)
+#   +0x50   u32      status
+#   +0x54   u8       level
+#   +0x55   u8       mail
+#   +0x56   u16      hp
+#   +0x58   u16      maxHP
+#   +0x5A   u16      attack
+#   +0x5C   u16      defense
+#   +0x5E   u16      speed
+#   +0x60   u16      spAttack
+#   +0x62   u16      spDefense
+#   ──────────────────────────────────────────────────────────────────
+#   sizeof(Pokemon) = 0x64 = 100 bytes
+#
+# Example: HP of the first party mon is at
+#   gSaveblock1 + 0x0238 + 0x56 = gSaveblock1 + 0x028E
+#
+# NOTE:  `gSaveblock1` and `gSaveblock2` are placed in the EWRAM
+# section (starting 0x02000000).  Their exact addresses depend on the
+# link order and can be obtained from the .map file produced by a
+# pokeemerald build (or from the stable-retro patched ROM's map).
+
+env:
+  game: PokemonEmerald-GBA
+  state: Level1
+  frame_skip: 4
+  frame_stack: 4
+  render_mode: null
+  gba_mode: true
+
+agent:
+  # ── ViT ──────────────────────────────────────────────────────────
+  patch_size: 16
+  embed_dim: 256
+  num_layers: 6
+  num_heads: 8
+  mlp_ratio: 4
+  dropout: 0.1
+  # ── Actor-Critic ─────────────────────────────────────────────────
+  hidden_dim: 512
+  # ── PPO ──────────────────────────────────────────────────────────
+  learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.01
+  max_grad_norm: 0.5
+  update_epochs: 4
+  num_minibatches: 4
+
+train:
+  total_timesteps: 10_000_000
+  num_envs: 8
+  n_steps: 128
+  batch_size: 256
+  log_interval: 100
+  save_interval: 500_000
+  checkpoint_dir: checkpoints
+  log_dir: logs
+  seed: 42
+
+# ── Frame recording ────────────────────────────────────────────────
+recorder:
+  output_dir: recordings
+  enabled: false
+  encode_mp4_on_stop: true
+  ffmpeg_crf: 23
+  ffmpeg_preset: medium
+  max_frames: 0
+
+# ── Shaped reward system ────────────────────────────────────────────
+reward:
+  screen_novelty_scale: 0.001
+  stale_penalty: -0.01
+  stale_threshold: 200
+  stale_diff_threshold: 0.001
+
+  # ── RAM scanners ──────────────────────────────────────────────────
+  #
+  # ADDRESSES NOT YET CONFIRMED — fill in gSaveblock1 base address
+  # from a pokeemerald build map, then replace the "0xFFFF" markers
+  # below with  (base + offset).
+  #
+  # Struct offsets from SaveBlock1 (see header block above):
+  #   playerX          base + 0x00  (byte is the lower byte of s16)
+  #   playerY          base + 0x02  (lower byte of s16)
+  #   map_group        base + 0x04  (first byte of WarpData)
+  #   playerPartyCount base + 0x234
+  #   partyMon1_Hp     base + 0x28E (2 bytes LE)
+  #   partyMon1_Level  base + 0x28C
+  #   money            base + 0x490 (4 bytes LE)
+  #   coins            base + 0x494 (2 bytes LE)
+  #
+  # Example scanner template (update addresses when known):
+  #
+  ram_scanners:
+    - name: "player_x"
+      type: "delta"
+      address: 0xFFFF   # TODO: gSaveblock1 + 0x00
+      delta_sign: "any"
+      reward: 0.02
+
+    - name: "player_y"
+      type: "delta"
+      address: 0xFFFF   # TODO: gSaveblock1 + 0x02
+      delta_sign: "any"
+      reward: 0.02
+
+    - name: "party_count_increase"
+      type: "delta"
+      address: 0xFFFF   # TODO: gSaveblock1 + 0x234
+      delta_sign: "positive"
+      reward: 0.5
+
+    - name: "money_earned"
+      type: "multi_byte"
+      address: 0xFFFF   # TODO: gSaveblock1 + 0x490
+      n_bytes: 3
+      byte_order: "little"
+      target_value: 0
+      reward: -0.1

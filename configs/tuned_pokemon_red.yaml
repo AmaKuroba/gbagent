@@ -1,0 +1,77 @@
+# GBAGent — Tuned PPO hyperparameters for Pokemon Red/Blue
+# ──────────────────────────────────────────────────────────────────────
+#
+# This config tunes PPO hyperparameters based on common RL best practices
+# for Atari-like environments (Pokemon Red has a large, structured state
+# space reminiscent of complex Atari games).
+#
+# Key changes from defaults:
+#   • n_steps 256 → larger rollout for more stable GAE estimates
+#   • num_minibatches 8 → smaller batches for more gradient steps per epoch
+#   • entropy_coef 0.005 → less exploration noise for Pokemon's structured tasks
+#   • learning_rate 2.5e-4 → slightly lower for stability over long runs
+#   • gae_lambda 0.97 → smoother advantage estimation
+#   • update_epochs 8 → more gradient steps per sample (standard PPO paper)
+#
+# ── How to run ───────────────────────────────────────────────────────
+#
+#   python train.py --config configs/tuned_pokemon_red.yaml
+
+env:
+  game: PokemonRed-GB
+  state: Level1
+  frame_skip: 4
+  frame_stack: 4
+  render_mode: null
+
+agent:
+  # ── ViT ──────────────────────────────────────────────────────────
+  patch_size: 16
+  embed_dim: 256
+  num_layers: 6
+  num_heads: 8
+  mlp_ratio: 4
+  dropout: 0.1
+  # ── Actor-Critic ─────────────────────────────────────────────────
+  hidden_dim: 512
+  # ── PPO (tuned) ─────────────────────────────────────────────────
+  learning_rate: 2.5e-4       # slightly reduced for stability
+  gamma: 0.99
+  gae_lambda: 0.97            # smoother advantage (less noisy)
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.005         # reduced — Pokemon has clear sub-goals
+  max_grad_norm: 0.5
+  update_epochs: 8            # more reuse per sample (PPO paper default)
+  num_minibatches: 8          # smaller batches, more updates
+
+train:
+  total_timesteps: 10_000_000
+  num_envs: 8
+  n_steps: 256                # longer rollout → better GAE estimates
+  batch_size: 256
+  log_interval: 100
+  save_interval: 500_000
+  checkpoint_dir: checkpoints
+  log_dir: logs
+  seed: 42
+  dashboard_port: 8765
+
+recorder:
+  output_dir: recordings
+  enabled: false
+  encode_mp4_on_stop: true
+  ffmpeg_crf: 23
+  ffmpeg_preset: medium
+  max_frames: 0
+
+reward:
+  screen_novelty_scale: 0.001
+  stale_penalty: -0.01
+  stale_threshold: 200
+  stale_diff_threshold: 0.001
+  ram_scanners:
+    # Same Pokemon Red scanners as pokemon_red.yaml — copy those in
+    # or launch with --config for the reward section.
+    # For pure hyperparameter testing, use the pokemon_red config instead.
+    []

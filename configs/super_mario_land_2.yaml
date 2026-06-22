@@ -1,0 +1,164 @@
+# GBAGent — Super Mario Land 2: 6 Golden Coins (GB)
+# ──────────────────────────────────────────────────────────────────────
+#
+# RAM addresses from the Super Mario Land 2 disassembly (pret/sml2)
+# and common romhacking references.
+#
+# NOTE: stable-retro may identify this as "SuperMarioLand2-GB" or
+# "SuperMarioLand2-GameBoy".  Verify on the training machine.
+#
+# ── How to run ───────────────────────────────────────────────────────
+#
+#   python train.py --config configs/super_mario_land_2.yaml
+
+env:
+  game: SuperMarioLand2-GB
+  state: Level1
+  frame_skip: 4
+  frame_stack: 4
+  render_mode: null
+
+agent:
+  # ── ViT ──────────────────────────────────────────────────────────
+  patch_size: 16
+  embed_dim: 256
+  num_layers: 6
+  num_heads: 8
+  mlp_ratio: 4
+  dropout: 0.1
+  # ── Actor-Critic ─────────────────────────────────────────────────
+  hidden_dim: 512
+  # ── PPO ──────────────────────────────────────────────────────────
+  learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.02
+  max_grad_norm: 0.5
+  update_epochs: 4
+  num_minibatches: 4
+
+train:
+  total_timesteps: 15_000_000
+  num_envs: 8
+  n_steps: 128
+  batch_size: 256
+  log_interval: 100
+  save_interval: 500_000
+  checkpoint_dir: checkpoints
+  log_dir: logs
+  seed: 42
+
+# ── Frame recording ────────────────────────────────────────────────
+recorder:
+  output_dir: recordings
+  enabled: false
+  encode_mp4_on_stop: true
+  ffmpeg_crf: 23
+  ffmpeg_preset: medium
+  max_frames: 0
+
+# ── Shaped reward system ────────────────────────────────────────────
+reward:
+  screen_novelty_scale: 0.001
+  stale_penalty: -0.01
+  stale_threshold: 200
+  stale_diff_threshold: 0.001
+
+  # ── RAM scanners ──────────────────────────────────────────────────
+  #
+  # Super Mario Land 2 (GB) — approximate RAM map:
+  # ==============================================
+  # $D000  — Player X position (subpixel, 1 byte)
+  # $D001  — Player X position (pixel)     (1 byte)
+  # $D002  — Player X position (screen)    (1 byte, main X)
+  # $D004  — Player Y position (subpixel)  (1 byte)
+  # $D005  — Player Y position (pixel)     (1 byte)
+  # $D006  — Player Y position (screen)    (1 byte)
+  # $D01A  — Player state                  (0=standing, 1=walking,
+  #           2=jumping, 3=falling, 4=swimming, etc.)
+  # $D01C  — Power-up state        (0=small, 1=super, 2=carrot)
+  # $D020  — Coins (1 byte)
+  # $D021  — Lives (1 byte)
+  # $D023  — Score (low byte of 3)
+  # $D024  — Score (mid byte)
+  # $D025  — Score (high byte)
+  # $D028  — Time (seconds, decrementing)
+  # $D030  — Level ID (current level)
+  # $D031  — World / zone ID
+  # $D034  — Coins collected in level
+  # $D036  — Golden coins collected (0-6)
+  # $D0C2  — Screen X scroll
+  #
+  # References:
+  #   • pret/sml2 — Super Mario Land 2 disassembly
+  #   • datacrystal memory map
+  #
+  # NOTE: Addresses need verification on the stable-retro ROM.
+  #
+  ram_scanners:
+
+    # ── Movement & exploration ─────────────────────────────────────
+
+    - name: "x_progress"
+      type: "delta"
+      address: 0xD0C2  # Screen X scroll (advances as player moves right)
+      delta_sign: "positive"
+      reward: 0.03
+
+    - name: "y_movement"
+      type: "delta"
+      address: 0xD006  # Player Y (screen)
+      delta_sign: "any"
+      reward: 0.01
+
+    # ── Coins & scoring ───────────────────────────────────────────
+
+    - name: "coins_collected"
+      type: "delta"
+      address: 0xD020  # Coins
+      delta_sign: "positive"
+      reward: 0.1
+
+    - name: "score_earned"
+      type: "delta"
+      address: 0xD023  # Score low byte
+      delta_sign: "positive"
+      reward: 0.02
+
+    # ── Progression ───────────────────────────────────────────────
+
+    - name: "golden_coin"
+      type: "delta"
+      address: 0xD036  # Golden coins (0-6)
+      delta_sign: "positive"
+      reward: 2.0
+
+    - name: "level_progress"
+      type: "delta"
+      address: 0xD030  # Level ID
+      delta_sign: "positive"
+      reward: 3.0
+
+    # ── Lives & power-ups ─────────────────────────────────────────
+
+    - name: "life_lost"
+      type: "delta"
+      address: 0xD021  # Lives
+      delta_sign: "negative"
+      reward: -1.0
+
+    - name: "powerup"
+      type: "delta"
+      address: 0xD01C  # Power-up state
+      delta_sign: "positive"
+      reward: 0.5
+
+    # ── Damage ────────────────────────────────────────────────────
+
+    - name: "damage"
+      type: "delta"
+      address: 0xD01C  # Power-up state decreases on hit
+      delta_sign: "negative"
+      reward: -0.2

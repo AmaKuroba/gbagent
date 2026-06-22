@@ -1,0 +1,175 @@
+# GBAGent — Super Mario Land (Game Boy)
+# ──────────────────────────────────────────────────────────────────────
+#
+# RAM addresses are based on the Super Mario Land (GB) memory map
+# documented by the romhacking community.
+#
+# NOTE: stable-retro identifies this game as e.g. "SuperMarioLand-GB".
+# Run `python -m retro.examples.list_games` on the training machine
+# to confirm the exact game name.
+#
+# ── How to run ───────────────────────────────────────────────────────
+#
+#   python train.py --config configs/super_mario_land.yaml
+#
+# ── Gameplay notes ───────────────────────────────────────────────────
+#
+# Super Mario Land is a side-scrolling platformer.  Key reward signals:
+#   • Player X position — rewards forward movement (highly correlated
+#     with game progress).
+#   • Score increase — rewards coin collection and enemy kills.
+#   • Lives / Game Over — milestone rewards and death penalties.
+#   • Power-up state — rewards getting the Superball flower.
+
+env:
+  game: SuperMarioLand-GB
+  state: Level1
+  frame_skip: 4
+  frame_stack: 4
+  render_mode: null
+
+agent:
+  # ── ViT ──────────────────────────────────────────────────────────
+  patch_size: 16
+  embed_dim: 256
+  num_layers: 6
+  num_heads: 8
+  mlp_ratio: 4
+  dropout: 0.1
+  # ── Actor-Critic ─────────────────────────────────────────────────
+  hidden_dim: 512
+  # ── PPO ──────────────────────────────────────────────────────────
+  learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.02       # slightly higher — platformers benefit from exploration
+  max_grad_norm: 0.5
+  update_epochs: 4
+  num_minibatches: 4
+
+train:
+  total_timesteps: 10_000_000
+  num_envs: 8
+  n_steps: 128
+  batch_size: 256
+  log_interval: 100
+  save_interval: 500_000
+  checkpoint_dir: checkpoints
+  log_dir: logs
+  seed: 42
+
+# ── Frame recording ────────────────────────────────────────────────
+recorder:
+  output_dir: recordings
+  enabled: false
+  encode_mp4_on_stop: true
+  ffmpeg_crf: 23
+  ffmpeg_preset: medium
+  max_frames: 0
+
+# ── Shaped reward system ────────────────────────────────────────────
+reward:
+  screen_novelty_scale: 0.001
+  stale_penalty: -0.01
+  stale_threshold: 200
+  stale_diff_threshold: 0.001
+
+  # ── RAM scanners ──────────────────────────────────────────────────
+  #
+  # Super Mario Land (GB) RAM map (US ROM v1.0):
+  # ==============================================
+  # $C0A0 — Mario X position (subpixel)   (1 byte)
+  # $C0A1 — Mario X position (screen)     (1 byte, main X coordinate)
+  # $C0A3 — Mario Y position (subpixel)   (1 byte)
+  # $C0A4 — Mario Y position (screen)     (1 byte)
+  # $C0A8 — Score (beginning)             (3 bytes BCD?)
+  # $C0AB — Score (last byte)
+  # $C0AE — Coins (2 bytes BCD)           (0-99)
+  # $C0B0 — World number                  (1 byte)
+  # $C0B1 — Level number                  (1 byte)
+  # $C0B4 — Time (centiseconds?)          (1 byte)
+  # $C100 — Lives                          (1 byte)
+  # $C186 — Power-up state                (0=none, 1=superball, 2=??)
+  #
+  # References:
+  #   • datacrystal / romhacking.net — Super Mario Land memory map
+  #
+  # NOTE: Addresses assume the stable-retro US ROM.  Verify with a
+  # RAM dump on the training machine.
+  #
+  ram_scanners:
+
+    # ── Movement (forward progress) ───────────────────────────────
+    # Mario's X position is the strongest proxy for level progress.
+
+    - name: "x_progress"
+      type: "delta"
+      address: 0xC0A1  # Mario X (screen tile)
+      delta_sign: "positive"
+      reward: 0.05
+
+    - name: "x_retreat"
+      type: "delta"
+      address: 0xC0A1  # Mario X (screen tile)
+      delta_sign: "negative"
+      reward: -0.02
+
+    - name: "y_movement"
+      type: "delta"
+      address: 0xC0A4  # Mario Y (screen)
+      delta_sign: "any"
+      reward: 0.01
+
+    # ── Scoring ───────────────────────────────────────────────────
+    # Score increases from coins and enemy kills.  The score is
+    # multi-byte; we monitor the most-frequently-changing byte.
+
+    - name: "score_earned"
+      type: "delta"
+      address: 0xC0A8  # Score (lowest byte, changes most often)
+      delta_sign: "positive"
+      reward: 0.05
+
+    # ── Coins ─────────────────────────────────────────────────────
+
+    - name: "coin_collected"
+      type: "delta"
+      address: 0xC0AE  # Coins (low byte)
+      delta_sign: "positive"
+      reward: 0.1
+
+    # ── Lives / Power-ups ─────────────────────────────────────────
+
+    - name: "life_gained"
+      type: "delta"
+      address: 0xC100  # Lives
+      delta_sign: "positive"
+      reward: 2.0
+
+    - name: "life_lost"
+      type: "delta"
+      address: 0xC100  # Lives
+      delta_sign: "negative"
+      reward: -1.0
+
+    - name: "powerup_obtained"
+      type: "delta"
+      address: 0xC186  # Power-up state
+      delta_sign: "positive"
+      reward: 0.5
+
+    # ── Level progression ─────────────────────────────────────────
+
+    - name: "level_complete"
+      type: "delta"
+      address: 0xC0B0  # World number
+      delta_sign: "positive"
+      reward: 3.0
+
+    - name: "world_advance"
+      type: "delta"
+      address: 0xC0B1  # Level number
+      delta_sign: "positive"
+      reward: 1.0

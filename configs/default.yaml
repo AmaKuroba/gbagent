@@ -1,0 +1,99 @@
+# GBAGent default configuration
+# Override individual fields with CLI flags (--game, --total-timesteps, etc.)
+
+env:
+  game: PokemonRed-GB
+  state: Level1
+  frame_skip: 4
+  frame_stack: 4
+  render_mode: null
+
+agent:
+  # ViT
+  patch_size: 16
+  embed_dim: 256
+  num_layers: 6
+  num_heads: 8
+  mlp_ratio: 4
+  dropout: 0.1
+  # Actor-Critic heads
+  hidden_dim: 512
+  # PPO
+  learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.01
+  max_grad_norm: 0.5
+  update_epochs: 4
+  num_minibatches: 4
+
+train:
+  total_timesteps: 10_000_000
+  num_envs: 8
+  n_steps: 128
+  batch_size: 256
+  log_interval: 100
+  save_interval: 500_000
+  checkpoint_dir: checkpoints
+  log_dir: logs
+  seed: 42
+  dashboard_host: 127.0.0.1
+  dashboard_port: 8765
+  dashboard_update_interval: 10  # throttle frame broadcasts to every N iterations
+
+# ── Frame recording ────────────────────────────────────────────────
+recorder:
+  output_dir: recordings
+  enabled: false
+  encode_mp4_on_stop: true
+  ffmpeg_crf: 23
+  ffmpeg_preset: medium
+  max_frames: 0
+
+# ── Shaped reward system ────────────────────────────────────────────
+# Rewards augment the native env reward to guide learning.
+# Each component can be independently zeroed to disable.
+
+reward:
+  # Screen novelty — reward pixel change between steps
+  # Scale=0.001 => about 0.001 × (0.04 mean diff) ≈ 0.00004 per step
+  screen_novelty_scale: 0.001
+
+  # Stale penalty — discourage getting stuck
+  stale_penalty: -0.01
+  stale_threshold: 200
+  stale_diff_threshold: 0.001
+
+  # RAM scanners — monitor Game Boy memory addresses
+  # Types: discrete | delta | multi_byte
+  ram_scanners:
+    # ── Discrete: reward when address holds a specific value ─────────
+    - name: "map_change"
+      type: "discrete"
+      address: 0xD16B
+      target_value: 1     # Map bank; reward when it changes to a new map
+      reward: 0.5
+
+    # ── Delta: reward when a value increases / decreases / changes ───
+    - name: "x_pos"
+      type: "delta"
+      address: 0xD163
+      delta_sign: "any"
+      reward: 0.01
+
+    - name: "y_pos"
+      type: "delta"
+      address: 0xD164
+      delta_sign: "any"
+      reward: 0.01
+
+    # ── Multi-byte: combine N bytes into one integer ─────────────────
+    - name: "money"
+      type: "multi_byte"
+      address: 0xD347
+      n_bytes: 2          # Pokemon Red stores money in BCD across 3 bytes,
+      byte_order: "big"   # but a 2-byte unsigned read works as a rough proxy
+      target_value: 9999  # Unrealistic — will effectively never fire;
+      reward: 10.0        # placeholder to show the scanner type works.

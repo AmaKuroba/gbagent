@@ -1,0 +1,170 @@
+# ──────────────────────────────────────────────────────────────────────
+# GBAGent — Game Configuration Template
+# ──────────────────────────────────────────────────────────────────────
+#
+# Copy this file as <game>.yaml, fill in the env and reward sections,
+# then run:
+#
+#   python train.py --config configs/<game>.yaml
+#
+# Any field can be overridden via CLI:
+#
+#   python train.py --game PokemonRed-GB --total-timesteps 5_000_000
+#
+# ──────────────────────────────────────────────────────────────────────
+
+env:
+  # ── Game ROM (name registered in stable-retro) ─────────────────────
+  game: ""                       # e.g. "PokemonRed-GB", "PokemonEmerald-GBA"
+  state: "Level1"                # starting state (Level1, Level2, …)
+  frame_skip: 4                  # input actions held for N frames
+  frame_stack: 4                 # last N frames stacked as channels
+  render_mode: null               # "human" to watch, null for headless
+  gba_mode: false                # True → enable L/R shoulder buttons (14-action space)
+
+agent:
+  # ── ViT (Vision Transformer) ──────────────────────────────────────
+  patch_size: 16
+  embed_dim: 256
+  num_layers: 6
+  num_heads: 8
+  mlp_ratio: 4
+  dropout: 0.1
+  # ── Actor-Critic heads ────────────────────────────────────────────
+  hidden_dim: 512
+  btn_size: 6                   # 6 (GB) or 8 (GBA) — auto-set via gba_mode
+  # ── PPO ───────────────────────────────────────────────────────────
+  learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.01
+  max_grad_norm: 0.5
+  update_epochs: 4
+  num_minibatches: 4
+
+# ── Frame recording ──────────────────────────────────────────────
+recorder:
+  output_dir: recordings      # subdirectory for recording sessions
+  enabled: false              # auto-start with training
+  encode_mp4_on_stop: true    # run ffmpeg to produce MP4 when recording stops
+  ffmpeg_crf: 23              # quality (lower = better, 0-51)
+  ffmpeg_preset: medium       # speed/size trade-off
+  max_frames: 0               # 0 = unlimited, else stop after N frames
+
+train:
+  total_timesteps: 10_000_000
+  num_envs: 8
+  n_steps: 128
+  batch_size: 256
+  log_interval: 100
+  save_interval: 500_000
+  checkpoint_dir: checkpoints
+  log_dir: logs
+  seed: 42
+  enable_dashboard: true      # Web dashboard server
+  dashboard_host: 127.0.0.1
+  dashboard_port: 8765
+  dashboard_update_interval: 10  # throttle frame broadcasts (saves CPU)
+
+# ── Shaped reward system ────────────────────────────────────────────
+#
+# Rewards augment the native env reward to guide learning.
+# Each component can be independently zeroed to disable.
+#
+# Two built-in signals — screen novelty & stale penalty — apply to
+# every game. RAM scanners are per-game and must be defined below.
+
+reward:
+  # ── Screen novelty — reward pixel change between steps ────────────
+  # Scale=0.001 => about 0.001 × (0.04 mean diff) ≈ 4e-5 per step
+  screen_novelty_scale: 0.001
+
+  # ── Stale penalty — discourage getting stuck ──────────────────────
+  stale_penalty: -0.01
+  stale_threshold: 200
+  stale_diff_threshold: 0.001
+
+  # ── RAM scanners ──────────────────────────────────────────────────
+  #
+  # Three scanner types are available:
+  #
+  #   discrete    — reward when byte == target_value (once per transition)
+  #   delta       — reward when the value changes (positive/negative/any)
+  #   multi_byte  — decode N consecutive bytes into an integer & compare
+  #
+  # Each scanner tracks its previous/triggered state so you get one
+  # reward per transition, not per frame.  See scanner-type docs below.
+  #
+  ram_scanners:
+
+    # ── Example: discrete scanner ───────────────────────────────────
+    #
+    # Fires ONCE (then waits until you leave & re-enter the target
+    # value). Useful for milestone events like loading a new map,
+    # earning a badge, or blacking out.
+    #
+    # Fields:
+    #   name          str     unique label (for logging)
+    #   type          "discrete"
+    #   address       int     RAM address (hex, 0x…)
+    #   target_value  int     reward when RAM[address] == this value
+    #   reward        float   bonus reward per event
+    #
+    - name: "example_discrete"
+      type: "discrete"
+      address: 0x0000
+      target_value: 1
+      reward: 0.5
+
+    # ── Example: delta scanner ──────────────────────────────────────
+    #
+    # Fires every step the addressed byte changes in the chosen
+    # direction. Best for continuous signals — movement, HP loss/gain.
+    #
+    # Fields:
+    #   name        str     unique label
+    #   type        "delta"
+    #   address     int     RAM address (hex, 0x…)
+    #   delta_sign  "positive" | "negative" | "any"
+    #   reward      float   bonus reward PER CHANGE
+    #
+    - name: "example_delta"
+      type: "delta"
+      address: 0x0001
+      delta_sign: "any"
+      reward: 0.01
+
+    # ── Example: multi_byte scanner ─────────────────────────────────
+    #
+    # Reads N consecutive bytes, decodes as little- or big-endian
+    # unsigned integer, and fires once per match (like discrete).
+    #
+    # Useful for multi-byte values that don't fit in one byte:
+    #   - Money (3-byte BCD)         n_bytes=3 byte_order="big"
+    #   - Experience (3-byte LE)     n_bytes=3 byte_order="little"
+    #   - HP (2-byte LE)             n_bytes=2 byte_order="little"
+    #
+    # Fields:
+    #   name         str     unique label
+    #   type         "multi_byte"
+    #   address      int     first RAM byte (hex, 0x…)
+    #   n_bytes      int     how many consecutive bytes to read
+    #   byte_order   "little" | "big"
+    #   target_value int     reward when decoded integer == this
+    #   reward       float   bonus reward per event
+    #
+    # NOTE: BCD-encoded values (PokeDollars, coins) will NOT decode
+    #       to their real decimal value — the raw BCD bytes are
+    #       interpreted as a binary integer.  This still works for
+    #       "detect zero" because BCD zero = binary zero.
+    #       For change detection use a delta scanner instead.
+    #
+    - name: "example_multi_byte"
+      type: "multi_byte"
+      address: 0x0002
+      n_bytes: 2
+      byte_order: "little"
+      target_value: 0
+      reward: -0.5

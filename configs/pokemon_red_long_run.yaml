@@ -1,0 +1,129 @@
+# GBAGent — Pokemon Red extended training (50M steps, tuned hyperparams)
+# ──────────────────────────────────────────────────────────────────────
+#
+# Combines the long-run timesteps from ``long_run_default.yaml`` with the
+# tuned PPO hyperparameters from ``tuned_pokemon_red.yaml``, plus the
+# full Pokemon Red RAM scanner suite.
+#
+# Intended training time on freighter.local (8 envs, CUDA):
+#   ~12-24 hours for 50M timesteps at ~600-1200 SPS
+#
+# ── How to run ───────────────────────────────────────────────────────
+#
+#   python train.py --config configs/pokemon_red_long_run.yaml
+
+env:
+  game: PokemonRed-GB
+  state: Level1
+  frame_skip: 4
+  frame_stack: 4
+  render_mode: null
+
+agent:
+  # ── ViT ──────────────────────────────────────────────────────────
+  patch_size: 16
+  embed_dim: 256
+  num_layers: 6
+  num_heads: 8
+  mlp_ratio: 4
+  dropout: 0.1
+  # ── Actor-Critic ─────────────────────────────────────────────────
+  hidden_dim: 512
+  # ── PPO (tuned for extended runs) ───────────────────────────────
+  learning_rate: 2.5e-4       # stable LR for long training
+  gamma: 0.99
+  gae_lambda: 0.97            # smoother advantage estimates
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.005         # lower entropy for structured tasks
+  max_grad_norm: 0.5
+  update_epochs: 8            # more data reuse (PPO paper rec.)
+  num_minibatches: 8          # smaller minibatches
+
+train:
+  total_timesteps: 50_000_000
+  num_envs: 8
+  n_steps: 256                # longer rollout horizon
+  batch_size: 256
+  log_interval: 100
+  save_interval: 1_000_000    # checkpoint every million steps
+  checkpoint_dir: checkpoints
+  log_dir: logs
+  seed: 42
+  dashboard_port: 8765
+
+recorder:
+  output_dir: recordings
+  enabled: false
+  encode_mp4_on_stop: true
+  ffmpeg_crf: 23
+  ffmpeg_preset: medium
+  max_frames: 0
+
+reward:
+  screen_novelty_scale: 0.001
+  stale_penalty: -0.01
+  stale_threshold: 200
+  stale_diff_threshold: 0.001
+
+  # Full Pokemon Red RAM scanner suite (same as pokemon_red.yaml)
+  ram_scanners:
+    # ── Movement / Exploration ─────────────────────────────────────
+    - name: "x_coord"
+      type: "delta"
+      address: 0xD362
+      delta_sign: "any"
+      reward: 0.02
+
+    - name: "y_coord"
+      type: "delta"
+      address: 0xD361
+      delta_sign: "any"
+      reward: 0.02
+
+    - name: "map_transition"
+      type: "delta"
+      address: 0xD35E
+      delta_sign: "any"
+      reward: 0.5
+
+    # ── Progression ────────────────────────────────────────────────
+    - name: "money_earned"
+      type: "delta"
+      address: 0xD348
+      delta_sign: "positive"
+      reward: 0.05
+
+    - name: "exp_gained"
+      type: "delta"
+      address: 0xD17B
+      delta_sign: "positive"
+      reward: 0.05
+
+    # ── Milestones ─────────────────────────────────────────────────
+    - name: "badge_earned"
+      type: "delta"
+      address: 0xD356
+      delta_sign: "positive"
+      reward: 2.0
+
+    - name: "party_caught_pokemon"
+      type: "delta"
+      address: 0xD163
+      delta_sign: "positive"
+      reward: 0.5
+
+    # ── Negative Signals ───────────────────────────────────────────
+    - name: "hp_damage_taken"
+      type: "delta"
+      address: 0xD16C
+      delta_sign: "negative"
+      reward: -0.05
+
+    - name: "mon_fainted"
+      type: "multi_byte"
+      address: 0xD16C
+      n_bytes: 2
+      byte_order: "little"
+      target_value: 0
+      reward: -0.5

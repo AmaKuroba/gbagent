@@ -1,0 +1,190 @@
+# GBAGent — Pokemon Red / Blue (Game Boy) configuration
+# ──────────────────────────────────────────────────────────────────────
+#
+# RAM addresses sourced from the pret/pokered disassembly symbol table
+# (https://github.com/pret/pokered), built via RGBDS.
+#
+# See `_template.yaml` for a full reference of all scanner types.
+#
+# ── How to run ───────────────────────────────────────────────────────
+#
+#   python train.py --config configs/pokemon_red.yaml
+#   # or override individual fields:
+#   python train.py --total-timesteps 5_000_000
+
+env:
+  game: PokemonRed-GB
+  state: Level1
+  frame_skip: 4
+  frame_stack: 4
+  render_mode: null
+
+agent:
+  # ── ViT ──────────────────────────────────────────────────────────
+  patch_size: 16
+  embed_dim: 256
+  num_layers: 6
+  num_heads: 8
+  mlp_ratio: 4
+  dropout: 0.1
+  # ── Actor-Critic ─────────────────────────────────────────────────
+  hidden_dim: 512
+  # ── PPO ──────────────────────────────────────────────────────────
+  learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.01
+  max_grad_norm: 0.5
+  update_epochs: 4
+  num_minibatches: 4
+
+train:
+  total_timesteps: 10_000_000
+  num_envs: 8
+  n_steps: 128
+  batch_size: 256
+  log_interval: 100
+  save_interval: 500_000
+  checkpoint_dir: checkpoints
+  log_dir: logs
+  seed: 42
+
+# ── Frame recording ────────────────────────────────────────────────
+recorder:
+  output_dir: recordings
+  enabled: false
+  encode_mp4_on_stop: true
+  ffmpeg_crf: 23
+  ffmpeg_preset: medium
+  max_frames: 0
+
+# ── Shaped reward system ────────────────────────────────────────────
+reward:
+  # Screen novelty — reward pixel change between steps
+  screen_novelty_scale: 0.001
+
+  # Stale penalty — discourage getting stuck
+  stale_penalty: -0.01
+  stale_threshold: 200
+  stale_diff_threshold: 0.001
+
+  # ── RAM scanners ──────────────────────────────────────────────────
+  #
+  # Address notes (Pokemon Red/Blue US)
+  # ====================================
+  # wXCoord       0xD362   Player X tile coordinate  (1 byte)
+  # wYCoord       0xD361   Player Y tile coordinate  (1 byte)
+  # wCurMap       0xD35E   Current map ID            (1 byte)
+  # wPlayerMoney  0xD347   3 bytes, big-endian BCD   (decode: raw≠decimal!)
+  # wObtainedBadges 0xD356 Bitfield of 8 badges      (1 byte)
+  # wPartyCount   0xD163   Number of pokemon in party (1 byte, 0-6)
+  # wPartyMon1HP  0xD16C   2 bytes, little-endian    (HP of first party mon)
+  # wPartyMon1Exp 0xD179   3 bytes, big-endian       (Exp of first party mon)
+  #
+  ram_scanners:
+
+    # ── Movement / Exploration ─────────────────────────────────────
+    # Rewards horizontal/vertical movement and map transitions.
+
+    - name: "x_coord"
+      type: "delta"
+      address: 0xD362
+      delta_sign: "any"
+      reward: 0.02
+
+    - name: "y_coord"
+      type: "delta"
+      address: 0xD361
+      delta_sign: "any"
+      reward: 0.02
+
+    # CurMap changes when the player crosses a map boundary
+    # (e.g. Pallet Town → Route 1 → Viridian City).
+    - name: "map_transition"
+      type: "delta"
+      address: 0xD35E
+      delta_sign: "any"
+      reward: 0.5
+
+    # ── Progression ────────────────────────────────────────────────
+    # Rewards earning money, gaining experience, and catching
+    # pokemon.
+
+    # Money is 3-byte big-endian BCD at $D347-$D349:
+    #   $D347 = 100,000s & 10,000s  (changes rarely)
+    #   $D348 = 1,000s & 100s       (changes with typical rewards)
+    #   $D349 = 10s & 1s            (changes with small transactions)
+    #
+    # Delta on the middle byte detects most trainer battle rewards
+    # (~$100-$2000) and major purchases.
+    - name: "money_earned"
+      type: "delta"
+      address: 0xD348
+      delta_sign: "positive"
+      reward: 0.05
+
+    # Experience of the first party pokemon.
+    # Exp is 3 bytes big-endian at $D179-$D17B.
+    # The low byte ($D17B) changes most frequently after battles.
+    - name: "exp_gained"
+      type: "delta"
+      address: 0xD17B
+      delta_sign: "positive"
+      reward: 0.05
+
+    # ── Milestones ─────────────────────────────────────────────────
+    # Rewards significant game events.
+
+    # Badges: each new badge sets an additional bit in $D356.
+    # When wObtainedBadges == 0xFF all 8 badges are held.
+    - name: "badge_earned"
+      type: "delta"
+      address: 0xD356
+      delta_sign: "positive"
+      reward: 2.0
+
+    # Party count increases when catching a wild pokemon.
+    # (Decreases when releasing / trading away.)
+    - name: "party_caught_pokemon"
+      type: "delta"
+      address: 0xD163
+      delta_sign: "positive"
+      reward: 0.5
+
+    # ── Negative Signals ───────────────────────────────────────────
+    # Penalises damage and fainting.
+
+    # HP of the first party mon is 2 bytes little-endian at $D16C.
+    # Delta on the Low byte detects most HP changes.
+    # NOTE: single-byte delta can wrap on 16-bit cross-boundary
+    #       (e.g. 0x00FF → 0x0100 shows as +1, not +256).
+    #       At low HP (<256) this is reliable; for full coverage
+    #       a multi-byte delta scanner would be needed.
+    - name: "hp_damage_taken"
+      type: "delta"
+      address: 0xD16C
+      delta_sign: "negative"
+      reward: -0.05
+
+    # Full HP = 0 on first party mon → fainted.
+    - name: "mon_fainted"
+      type: "multi_byte"
+      address: 0xD16C
+      n_bytes: 2
+      byte_order: "little"
+      target_value: 0
+      reward: -0.5
+
+    # ── Not-yet-addressable signals ────────────────────────────────
+    #
+    # Blackout (full-party wipe) — detected in-game via wBattleResult
+    # ($CF0B = $01 for loss), but it is reset to $00 by the blackout
+    # handler within a single frame, making it unreliable to sample
+    # at env-step granularity.  Alternative probes:
+    #   • wPartyMon{1-6}HP all == 0  (needs 6 multi_byte scanners)
+    #   • wCurMap winding up at a Pokemon Center post-heal
+    #
+    # PokeDollars = 0 (bankrupt) — multi-byte on $D347 (3 bytes,
+    #   big-endian) with target=0 works for detecting 0 money.

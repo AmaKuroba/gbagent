@@ -1,0 +1,170 @@
+# GBAGent — Tetris (Game Boy)
+# ──────────────────────────────────────────────────────────────────────
+#
+# RAM addresses are based on the well-documented Tetris (GB) memory map.
+# The game was developed by Nintendo R&D1 and published in 1989.
+#
+# NOTE: stable-retro may use "Tetris-GB" or "Tetris-GameBoy" depending
+# on the ROM version.  Adjust the `game` field if needed.
+# Run `python -m retro.examples.list_games` on the training machine.
+#
+# ── How to run ───────────────────────────────────────────────────────
+#
+#   python train.py --config configs/tetris.yaml
+#
+# ── Gameplay notes ───────────────────────────────────────────────────
+#
+# Tetris is unusual for RL: the reward signal from the native env is
+# often sparse (score changes only on line clears).  This config heavily
+# relies on RAM scanners to provide shaped feedback:
+#
+#   • piece_dropped — rewards placing a piece (Y position change)
+#   • lines_cleared — rewards row completions
+#   • game_over     — penalises dying
+#   • level_up      — rewards reaching higher levels
+#
+# Because Tetris has no "exploration" beyond piece placement, a lower
+# entropy coefficient may converge faster.  Screen novelty can still
+# help in the very early random-play stage.
+
+env:
+  game: Tetris-GB
+  state: Level1
+  frame_skip: 4
+  frame_stack: 4
+  render_mode: null
+
+agent:
+  # ── ViT ──────────────────────────────────────────────────────────
+  patch_size: 16
+  embed_dim: 256
+  num_layers: 6
+  num_heads: 8
+  mlp_ratio: 4
+  dropout: 0.1
+  # ── Actor-Critic ─────────────────────────────────────────────────
+  hidden_dim: 512
+  # ── PPO (Tetris-tuned) ──────────────────────────────────────────
+  learning_rate: 0.00025       # slightly lower for simpler game
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.005          # lower — less exploration needed
+  max_grad_norm: 0.5
+  update_epochs: 4
+  num_minibatches: 4
+
+train:
+  total_timesteps: 10_000_000
+  num_envs: 8
+  n_steps: 128
+  batch_size: 256
+  log_interval: 100
+  save_interval: 500_000
+  checkpoint_dir: checkpoints
+  log_dir: logs
+  seed: 42
+
+# ── Frame recording ────────────────────────────────────────────────
+recorder:
+  output_dir: recordings
+  enabled: false
+  encode_mp4_on_stop: true
+  ffmpeg_crf: 23
+  ffmpeg_preset: medium
+  max_frames: 0
+
+# ── Shaped reward system ────────────────────────────────────────────
+reward:
+  screen_novelty_scale: 0.0005  # lower — screen changes a lot from falling pieces
+  stale_penalty: -0.01
+  stale_threshold: 200
+  stale_diff_threshold: 0.001
+
+  # ── RAM scanners ──────────────────────────────────────────────────
+  #
+  # Tetris Game Boy memory map (US ROM v1.1):
+  # ============================================
+  # $C022  — Level                     (1 byte, 0-19)
+  # $C023  — Lines completed           (1 byte, 0-999)
+  # $C024  — Lines completed (high byte)
+  # $C028  — Score (low byte)          (2 bytes LE, BCD-like display)
+  # $C029  — Score (high byte)
+  # $C02A  — Score box display state
+  # $C030  — Game state          (0=init, 1=playing, 2=game over)
+  # $C0A0  — Current piece type        (0-6)
+  # $C0A1  — Current piece X position  (0-9)
+  # $C0A2  — Current piece rotation    (0-3)
+  # $C0A3  — Current piece Y position  (0-19)
+  # $C0B0  — Next piece type           (0-6)
+  #
+  # References:
+  #   • Tetris (Game Boy) memory map — datacrystal / romhacking.net
+  #   • pret disassembly of Tetris for Game Boy (github.com/pret)
+  #
+  # NOTE: These addresses are for the US ROM.  The stable-retro ROM
+  # may use different addresses if it's a patched version.  Verify
+  # with a RAM dump from a running environment.
+  #
+  ram_scanners:
+
+    # ── Piece placement ───────────────────────────────────────────
+    # Rewards the agent for moving pieces downward and placing them.
+
+    - name: "piece_dropped"
+      type: "delta"
+      address: 0xC0A3  # Current piece Y position
+      delta_sign: "positive"
+      reward: 0.01
+
+    # ── Line clears (progression) ─────────────────────────────────
+
+    - name: "lines_cleared"
+      type: "delta"
+      address: 0xC023  # Lines completed
+      delta_sign: "positive"
+      reward: 1.0
+
+    # ── Scoring ───────────────────────────────────────────────────
+    # The score is stored as 2 bytes LE at $C028 (low) / $C029 (high).
+    # We use the low byte as a heuristic for small score changes.
+    # This fires on every line clear (100-300 points depending on lines)
+    # and on soft-drops (1 point per row).
+
+    - name: "score_increase"
+      type: "delta"
+      address: 0xC028  # Score low byte
+      delta_sign: "positive"
+      reward: 0.05
+
+    # ── Level progression ─────────────────────────────────────────
+
+    - name: "level_up"
+      type: "delta"
+      address: 0xC022  # Level
+      delta_sign: "positive"
+      reward: 2.0
+
+    # ── Game over (negative) ──────────────────────────────────────
+
+    - name: "game_over"
+      type: "discrete"
+      address: 0xC030  # Game state
+      target_value: 2  # 2 = game over
+      reward: -1.0
+
+    # ── Piece movement & rotation ─────────────────────────────────
+    # Subtle rewards for exploring the action space.
+
+    - name: "piece_h_move"
+      type: "delta"
+      address: 0xC0A1  # Piece X position
+      delta_sign: "any"
+      reward: 0.005
+
+    - name: "piece_rotated"
+      type: "delta"
+      address: 0xC0A2  # Piece rotation
+      delta_sign: "any"
+      reward: 0.01

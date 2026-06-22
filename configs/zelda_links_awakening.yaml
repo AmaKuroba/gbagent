@@ -1,0 +1,184 @@
+# GBAGent — The Legend of Zelda: Link's Awakening DX (GBC)
+# ──────────────────────────────────────────────────────────────────────
+#
+# RAM addresses are based on the well-documented Link's Awakening DX
+# memory map (zelda.com / datacrystal / romhacking.net resources).
+#
+# These addresses assume the stable-retro US ROM revision.  If the ROM
+# has been patched for stable-retro integration, addresses may shift.
+# Verify with `python -c "import retro; env = retro.make('ZeldaLinksAwakeningDX-GBC'); print(env.get_ram())"`.
+#
+# ── How to run ───────────────────────────────────────────────────────
+#
+#   python train.py --config configs/zelda_links_awakening.yaml
+#
+# ── About GBC mode ───────────────────────────────────────────────────
+#
+# Link's Awakening DX is a GBC game.  The engine auto-detects GBA mode
+# when 'L' / 'R' buttons are present, which expands the action space
+# to 14 actions (L and R are added).  LX and RX shoulders are unused
+# in this game but harmless to the agent.
+
+env:
+  game: ZeldaLinksAwakeningDX-GBC
+  state: Level1
+  frame_skip: 4
+  frame_stack: 4
+  render_mode: null
+
+agent:
+  # ── ViT ──────────────────────────────────────────────────────────
+  patch_size: 16
+  embed_dim: 256
+  num_layers: 6
+  num_heads: 8
+  mlp_ratio: 4
+  dropout: 0.1
+  # ── Actor-Critic ─────────────────────────────────────────────────
+  hidden_dim: 512
+  # ── PPO ──────────────────────────────────────────────────────────
+  learning_rate: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  value_coef: 0.5
+  entropy_coef: 0.01
+  max_grad_norm: 0.5
+  update_epochs: 4
+  num_minibatches: 4
+
+train:
+  total_timesteps: 10_000_000
+  num_envs: 8
+  n_steps: 128
+  batch_size: 256
+  log_interval: 100
+  save_interval: 500_000
+  checkpoint_dir: checkpoints
+  log_dir: logs
+  seed: 42
+
+# ── Frame recording ────────────────────────────────────────────────
+recorder:
+  output_dir: recordings
+  enabled: false
+  encode_mp4_on_stop: true
+  ffmpeg_crf: 23
+  ffmpeg_preset: medium
+  max_frames: 0
+
+# ── Shaped reward system ────────────────────────────────────────────
+reward:
+  screen_novelty_scale: 0.001
+  stale_penalty: -0.01
+  stale_threshold: 200
+  stale_diff_threshold: 0.001
+
+  # ── RAM scanners ──────────────────────────────────────────────────
+  #
+  # RAM map references (Link's Awakening DX US):
+  # =============================================
+  # $DB45  — Room X coordinate (1 byte)   — horizontal room index
+  # $DB46  — Room Y coordinate (1 byte)   — vertical room index
+  # $DB48  — Overworld/Indoor flag        — 0=overworld, 1=indoor
+  # $DB95  — Link X position within room  (1 byte, tile position)
+  # $DB96  — Link Y position within room  (1 byte, tile position)
+  # $DB00  — Health (current)             (1 byte, 0x00-0xC0 = 0-12 hearts)
+  # $DB01  — Max health                   (1 byte)
+  # $DB06  — Rupees (low byte)            (1 byte, 0-99 BCD? actually raw)
+  # $DB07  — Rupees (high byte)
+  # $DB0E  — Seashells collected          (1 byte)
+  # $DB6F  — Keys                         (1 byte)
+  # $DB73  — Bombs                        (1 byte)
+  # $DB76  — Instrument flags             (bitmask)
+  # $DB98  — Sword level                  (0=none, 1=noble, 2=master)
+  # $DB99  — Shield level                 (0=none, 1=normal, 2=mirror)
+  #
+  ram_scanners:
+
+    # ── Movement / Exploration ─────────────────────────────────────
+    # Rewards Link for moving in the overworld.
+
+    - name: "x_tile"
+      type: "delta"
+      address: 0xDB95  # Link X tile position
+      delta_sign: "any"
+      reward: 0.02
+
+    - name: "y_tile"
+      type: "delta"
+      address: 0xDB96  # Link Y tile position
+      delta_sign: "any"
+      reward: 0.02
+
+    - name: "room_transition"
+      type: "delta"
+      address: 0xDB45  # Room X coordinate
+      delta_sign: "any"
+      reward: 0.5
+
+    - name: "room_v_transition"
+      type: "delta"
+      address: 0xDB46  # Room Y coordinate
+      delta_sign: "any"
+      reward: 0.5
+
+    # ── Items / Progression ───────────────────────────────────────
+
+    - name: "rupees_gained"
+      type: "delta"
+      address: 0xDB06  # Rupees low byte
+      delta_sign: "positive"
+      reward: 0.05
+
+    - name: "rupees_lost"
+      type: "delta"
+      address: 0xDB06  # Rupees low byte
+      delta_sign: "negative"
+      reward: -0.05
+
+    - name: "seashell_found"
+      type: "delta"
+      address: 0xDB0E  # Seashells
+      delta_sign: "positive"
+      reward: 1.0
+
+    - name: "key_obtained"
+      type: "delta"
+      address: 0xDB6F  # Keys
+      delta_sign: "positive"
+      reward: 0.5
+
+    # ── Combat / Health ───────────────────────────────────────────
+
+    - name: "damage_taken"
+      type: "delta"
+      address: 0xDB00  # Health
+      delta_sign: "negative"
+      reward: -0.1
+
+    - name: "health_recovery"
+      type: "delta"
+      address: 0xDB00  # Health
+      delta_sign: "positive"
+      reward: 0.5
+
+    # ── Milestones ────────────────────────────────────────────────
+
+    - name: "instrument_acquired"
+      type: "delta"
+      address: 0xDB76  # Instrument flags
+      delta_sign: "positive"
+      reward: 5.0
+
+    - name: "sword_upgrade"
+      type: "delta"
+      address: 0xDB98  # Sword level
+      delta_sign: "positive"
+      reward: 3.0
+
+    - name: "shield_upgrade"
+      type: "delta"
+      address: 0xDB99  # Shield level
+      delta_sign: "positive"
+      reward: 2.0
