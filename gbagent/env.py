@@ -189,11 +189,14 @@ class GBAGEnv(gym.Env):
                 print(f"  ROM dir: {resolved}")
 
         # Resolve state: if the file doesn't exist, fall back to power-on default
+        # and auto-create the state file so it's available next time.
         state_to_use: retro.State | str = state
+        auto_create_state = False
         if isinstance(state, str) and state not in ("__default__", "__none__"):
             if retro_data.get_file_path(game, f"{state}.state") is None:
                 print(f"  ⚠ State '{state}' not found for '{game}', using power-on default")
                 state_to_use = retro.State.DEFAULT
+                auto_create_state = True
 
         # Create the underlying Retro environment
         self._env = retro.make(
@@ -203,6 +206,10 @@ class GBAGEnv(gym.Env):
             render_mode=render_mode if render_mode == "human" else None,
             **scenario_kwargs,
         )
+
+        # Auto-create the requested state file from the default state
+        if auto_create_state:
+            self._auto_create_state(game, state, rom_dir)
 
         # GBA mode enables L/R shoulder buttons
         self._gba_mode = gba_mode or self._detect_gba()
@@ -285,6 +292,17 @@ class GBAGEnv(gym.Env):
     def _detect_gba(self) -> bool:
         """Detect GBA games by checking for L/R buttons in the env."""
         return "L" in self._buttons or "R" in self._buttons
+
+    def _auto_create_state(self, game: str, state: str, rom_dir: str | None) -> None:
+        """Save the current (default) emulator state as the requested state file."""
+        if rom_dir is not None:
+            save_dir = Path(rom_dir).resolve() / game
+        else:
+            save_dir = Path(retro_data.path()) / "stable" / game
+        save_dir.mkdir(parents=True, exist_ok=True)
+        state_path = save_dir / f"{state}.state"
+        self._env.save_state(str(state_path))
+        print(f"  ✓ Created default state: {state_path}")
 
     def _stacked_obs(self) -> np.ndarray:
         """Concatenate the frame stack on the last axis → (*H*, *W*, *C*·*k*)."""
