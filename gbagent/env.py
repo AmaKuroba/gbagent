@@ -180,12 +180,17 @@ class GBAGEnv(gym.Env):
         self._stack: deque[np.ndarray] = deque(maxlen=frame_stack)
         self._render_mode = render_mode
 
-        # Register custom ROM directory (once per unique path)
+        # Register custom ROM directory and build integration type.
+        # We keep the default inttype (STABLE) and layer CUSTOM_ONLY on top
+        # so built-in game data (data.json, scenario.json) is found in the
+        # stable path while the ROM is resolved from the custom directory.
+        inttype = retro_data.Integrations.STABLE
         if rom_dir is not None:
             resolved = Path(rom_dir).resolve()
             if resolved.is_dir() and str(resolved) not in _registered_rom_dirs:
                 _registered_rom_dirs.add(str(resolved))
-                retro_data.add_custom_integration(str(resolved))
+                retro_data.Integrations.add_custom_path(str(resolved))
+                inttype |= retro_data.Integrations.CUSTOM_ONLY
                 print(f"  ROM dir: {resolved}")
 
         # Resolve state: if the file doesn't exist, fall back to power-on default
@@ -193,7 +198,7 @@ class GBAGEnv(gym.Env):
         state_to_use: retro.State | str = state
         auto_create_state = False
         if isinstance(state, str) and state not in ("__default__", "__none__"):
-            if retro_data.get_file_path(game, f"{state}.state") is None:
+            if retro_data.get_file_path(game, f"{state}.state", inttype) is None:
                 print(f"  ⚠ State '{state}' not found for '{game}', using power-on default")
                 state_to_use = retro.State.DEFAULT
                 auto_create_state = True
@@ -202,6 +207,7 @@ class GBAGEnv(gym.Env):
         self._env = retro.make(
             game=game,
             state=state_to_use,
+            inttype=inttype,
             use_restricted_actions=retro.Actions.DISCRETE,
             render_mode=render_mode if render_mode == "human" else None,
             **scenario_kwargs,
