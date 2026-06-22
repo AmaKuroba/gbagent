@@ -71,6 +71,8 @@ class TestSampleActions:
 
     def test_keras_tensor_conversion(self):
         class FakeTensor:
+            shape = (1, 5)
+
             def numpy(self):
                 return np.array([[1.0, 2.0, 3.0, 4.0, 5.0]], dtype=np.float64)
 
