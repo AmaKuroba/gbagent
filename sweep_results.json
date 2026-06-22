@@ -1,0 +1,122 @@
+[
+  {
+    "params": {
+      "learning_rate": 0.0001,
+      "entropy_coef": 0.005,
+      "clip_epsilon": 0.1,
+      "gae_lambda": 0.95,
+      "update_epochs": 4,
+      "num_minibatches": 4,
+      "n_steps": 128
+    },
+    "success": false,
+    "timestamp": "2026-06-22T09:19:45.841086+00:00",
+    "elapsed_s": 3.9,
+    "note": "no metrics matched in output"
+  },
+  {
+    "params": {
+      "learning_rate": 0.0001,
+      "entropy_coef": 0.005,
+      "clip_epsilon": 0.1,
+      "gae_lambda": 0.95,
+      "update_epochs": 4,
+      "num_minibatches": 4,
+      "n_steps": 256
+    },
+    "success": false,
+    "timestamp": "2026-06-22T09:19:47.831970+00:00",
+    "elapsed_s": 2.0,
+    "note": "no metrics matched in output"
+  },
+  {
+    "params": {
+      "learning_rate": 0.0001,
+      "entropy_coef": 0.005,
+      "clip_epsilon": 0.1,
+      "gae_lambda": 0.95,
+      "update_epochs": 4,
+      "num_minibatches": 8,
+      "n_steps": 128
+    },
+    "success": false,
+    "timestamp": "2026-06-22T09:25:49.437802+00:00",
+    "elapsed_s": 2.0,
+    "note": "no metrics matched in output"
+  },
+  {
+    "params": {
+      "learning_rate": 0.0001,
+      "entropy_coef": 0.005,
+      "clip_epsilon": 0.1,
+      "gae_lambda": 0.95,
+      "update_epochs": 4,
+      "num_minibatches": 8,
+      "n_steps": 256
+    },
+    "success": false,
+    "timestamp": "2026-06-22T09:25:51.380905+00:00",
+    "elapsed_s": 1.9,
+    "note": "no metrics matched in output"
+  },
+  {
+    "params": {
+      "learning_rate": 0.0001,
+      "entropy_coef": 0.005,
+      "clip_epsilon": 0.1,
+      "gae_lambda": 0.95,
+      "update_epochs": 8,
+      "num_minibatches": 4,
+      "n_steps": 128
+    },
+    "success": false,
+    "timestamp": "2026-06-22T09:28:43.905187+00:00",
+    "elapsed_s": 2.0,
+    "note": "no metrics matched in output"
+  },
+  {
+    "params": {
+      "learning_rate": 0.0001,
+      "entropy_coef": 0.005,
+      "clip_epsilon": 0.1,
+      "gae_lambda": 0.95,
+      "update_epochs": 8,
+      "num_minibatches": 4,
+      "n_steps": 256
+    },
+    "success": false,
+    "timestamp": "2026-06-22T09:28:45.896028+00:00",
+    "elapsed_s": 2.0,
+    "note": "no metrics matched in output"
+  },
+  {
+    "params": {
+      "learning_rate": 0.0001,
+      "entropy_coef": 0.005,
+      "clip_epsilon": 0.1,
+      "gae_lambda": 0.95,
+      "update_epochs": 8,
+      "num_minibatches": 8,
+      "n_steps": 128
+    },
+    "success": false,
+    "timestamp": "2026-06-22T09:30:24.566249+00:00",
+    "elapsed_s": 2.0,
+    "note": "no metrics matched in output"
+  },
+  {
+    "params": {
+      "learning_rate": 0.0001,
+      "entropy_coef": 0.005,
+      "clip_epsilon": 0.1,
+      "gae_lambda": 0.95,
+      "update_epochs": 8,
+      "num_minibatches": 8,
+      "n_steps": 256
+    },
+    "success": false,
+    "timestamp": "2026-06-22T09:30:26.489814+00:00",
+    "elapsed_s": 1.9,
+    "note": "no metrics matched in output"
+  }
+]

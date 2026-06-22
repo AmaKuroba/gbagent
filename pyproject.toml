@@ -17,6 +17,9 @@ dependencies = [
     "opencv-python>=4.9",
     "PyYAML>=6.0",
     "tensorflow>=2.16",
+    "nvidia-cuda-runtime-cu12",
+    "nvidia-cublas-cu12",
+    "nvidia-cudnn-cu12",
     "keras>=3.3",
     "aiohttp>=3.9",
 ]
@@ -54,5 +57,8 @@ ignore_missing_imports = true
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["gbagent*"]
+
+[tool.uv.sources]
+stable-retro = { git = "https://github.com/Farama-Foundation/stable-retro.git" }
 
 
