@@ -44,7 +44,7 @@ def test_buffer_clear():
 class TestGAE:
     def test_gae_monotonic_reward(self):
         buf = RolloutBuffer(num_envs=1, n_steps=5, obs_shape=(84, 84, 4))
-        for i in range(5):
+        for _i in range(5):
             obs = np.random.randn(1, 84, 84, 4).astype(np.float32)
             buf.store(obs,
                       np.array([0]), np.array([0]),
@@ -83,7 +83,7 @@ class TestGAE:
 
     def test_gae_multiple_envs(self):
         buf = RolloutBuffer(num_envs=3, n_steps=10, obs_shape=(84, 84, 4))
-        for i in range(10):
+        for _i in range(10):
             obs = np.random.randn(3, 84, 84, 4).astype(np.float32)
             buf.store(obs,
                       np.array([0, 1, 2]), np.array([0, 0, 1]),
@@ -102,7 +102,7 @@ class TestGAE:
 
     def test_gae_zero_returns_for_zero_rewards(self):
         buf = RolloutBuffer(num_envs=1, n_steps=5, obs_shape=(84, 84, 4))
-        for i in range(5):
+        for _i in range(5):
             obs = np.random.randn(1, 84, 84, 4).astype(np.float32)
             buf.store(obs,
                       np.array([0]), np.array([0]),
@@ -119,7 +119,7 @@ class TestGAE:
 class TestGetBatches:
     def test_batch_size(self):
         buf = RolloutBuffer(num_envs=2, n_steps=10, obs_shape=(4, 4, 1))
-        for i in range(10):
+        for _i in range(10):
             obs = np.random.randn(2, 4, 4, 1).astype(np.float32)
             buf.store(obs,
                       np.array([0, 1]), np.array([0, 0]),
@@ -159,7 +159,7 @@ class TestGetBatches:
 
     def test_returns_equals_adv_plus_values(self):
         buf = RolloutBuffer(num_envs=1, n_steps=5, obs_shape=(4, 4, 1))
-        for i in range(5):
+        for _i in range(5):
             obs = np.random.randn(1, 4, 4, 1).astype(np.float32)
             buf.store(obs,
                       np.array([0]), np.array([0]),

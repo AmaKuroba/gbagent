@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 import cv2
 import gymnasium as gym
@@ -155,7 +155,7 @@ class GBAGEnv(gym.Env):
     * GBA mode adds L/R shoulder buttons to the action space.
     """
 
-    metadata: ClassVar[dict[str, Any]] = {
+    metadata: dict[str, Any] = {
         "render_modes": ("human", "rgb_array"),
         "render_fps": 60,
     }
@@ -197,11 +197,14 @@ class GBAGEnv(gym.Env):
         # and auto-create the state file so it's available next time.
         state_to_use: retro.State | str = state
         auto_create_state = False
-        if isinstance(state, str) and state not in ("__default__", "__none__"):
-            if retro_data.get_file_path(game, f"{state}.state", inttype) is None:
-                print(f"  ⚠ State '{state}' not found for '{game}', using power-on default")
-                state_to_use = retro.State.NONE
-                auto_create_state = True
+        if (
+            isinstance(state, str)
+            and state not in ("__default__", "__none__")
+            and retro_data.get_file_path(game, f"{state}.state", inttype) is None
+        ):
+            print(f"  ⚠ State '{state}' not found for '{game}', using power-on default")
+            state_to_use = retro.State.NONE
+            auto_create_state = True
 
         # Create the underlying Retro environment
         self._env = retro.make(

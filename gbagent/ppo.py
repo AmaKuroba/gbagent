@@ -8,8 +8,7 @@ ActorCritic model, RolloutBuffer, and action utilities.
 from __future__ import annotations
 
 import keras
-import tensorflow as tf
-from keras import ops
+from keras import backend, ops
 
 from gbagent.action import compute_log_probs, policy_entropy
 
@@ -102,7 +101,6 @@ def ppo_update_step(
     clip_epsilon: float = 0.2,
     value_coef: float = 0.5,
     entropy_coef: float = 0.01,
-    max_grad_norm: float = 0.5,
 ) -> dict[str, float]:
     """Run one PPO gradient update on a single mini-batch.
 
@@ -111,18 +109,19 @@ def ppo_update_step(
     model :
         The ActorCritic Keras model.
     optimizer :
-        AdamW (or Adam) optimiser instance.
+        AdamW (or Adam) optimiser instance (should have ``global_clipnorm``
+        set for gradient clipping).
     obs_batch … old_lp_batch :
         Mini-batch tensors (already batched — **not** the flat concatenation
         from the buffer; that must be handled outside).
-    clip_epsilon … max_grad_norm :
+    clip_epsilon … entropy_coef :
         PPO hyper-parameters.
 
     Returns
     -------
     dict of scalar loss components for logging.
     """
-    with tf.GradientTape() as tape:
+    with backend.GradientTape() as tape:  # ty: ignore[unresolved-attribute]
         dpad_logits, btn_logits, values = model(obs_batch, training=True)
         losses = ppo_loss(
             dpad_logits=dpad_logits,
@@ -139,12 +138,8 @@ def ppo_update_step(
         )
         total_loss = losses["total_loss"]
 
-    # Compute gradients
+    # Compute gradients (clipping handled by optimizer's global_clipnorm)
     grads = tape.gradient(total_loss, model.trainable_variables)
-
-    # Gradient clipping (global norm)
-    if max_grad_norm > 0.0:
-        grads, _ = tf.clip_by_global_norm(grads, max_grad_norm)
 
     # Apply gradients
     optimizer.apply_gradients(zip(grads, model.trainable_variables, strict=False))

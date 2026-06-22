@@ -205,7 +205,7 @@ def export_to_onnx(
     tf = _import_tf()
 
     try:
-        import tf2onnx
+        import tf2onnx  # ty: ignore[unresolved-import]
     except ImportError as err:
         raise ImportError(
             "tf2onnx is required for ONNX export. Install it with:\n"

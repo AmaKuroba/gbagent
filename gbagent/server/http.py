@@ -95,7 +95,7 @@ def create_app(
 # ===================================================================
 
 
-async def handle_index(request: web.Request) -> web.Response:
+async def handle_index(request: web.Request) -> web.StreamResponse:
     """Serve ``static/index.html``."""
     index_path = STATIC_DIR / "index.html"
     if index_path.is_file():

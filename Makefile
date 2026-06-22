@@ -1,10 +1,10 @@
 .PHONY: test test-all lint typecheck
 
-# Run all non-keras tests (works without TensorFlow)
+# Run tests with JAX backend (default)
 test:
-	KERAS_BACKEND=numpy python -m pytest tests/ -v -k "not keras" --tb=short
+	KERAS_BACKEND=jax python -m pytest tests/ -v --tb=short
 
-# Run all tests (requires TensorFlow)
+# Run tests with all available backends
 test-all:
 	python -m pytest tests/ -v --tb=short
 

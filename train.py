@@ -203,6 +203,7 @@ def train(cfg: Config, args: argparse.Namespace | None = None) -> None:
     print(f"› Creating {cfg.train.num_envs} parallel environments …")
     envs = [make_env(i) for i in range(cfg.train.num_envs)]
     obs_shape = envs[0].observation_space.shape  # (84, 84, 4)
+    assert obs_shape is not None and len(obs_shape) == 3
 
     # Reward systems (one per env — independent RAM/scanner state)
     reward_config = cfg.reward.to_dict()
@@ -221,12 +222,12 @@ def train(cfg: Config, args: argparse.Namespace | None = None) -> None:
     print(f"  ✓ Parameter count: {model.count_params():,}")
 
     # ------------------------------------------------------------------
-    # AdamW optimizer (with weight decay)
+    # AdamW optimizer (with weight decay + global norm clipping)
     # ------------------------------------------------------------------
     optimizer = keras.optimizers.AdamW(
         learning_rate=cfg.agent.learning_rate,
         weight_decay=1e-4,
-        clipnorm=None,
+        global_clipnorm=cfg.agent.max_grad_norm,
     )
 
     # ------------------------------------------------------------------
@@ -246,7 +247,7 @@ def train(cfg: Config, args: argparse.Namespace | None = None) -> None:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    writer = keras.callbacks.TensorBoard(log_dir=str(log_dir))
+    writer = _create_tb_writer(str(log_dir))
 
     # ------------------------------------------------------------------
     # Dashboard server (background thread)
@@ -311,7 +312,6 @@ def train(cfg: Config, args: argparse.Namespace | None = None) -> None:
     # Main loop
     # ------------------------------------------------------------------
 
-    _ = writer  # TensorBoard writer / callback
     iter_counter = 0  # iteration counter for dashboard throttling
 
     # Pre-allocate observation buffer to avoid list→array overhead
@@ -371,7 +371,7 @@ def train(cfg: Config, args: argparse.Namespace | None = None) -> None:
                 # ── Record frame from the first environment ──────────
                 if env_idx == 0 and recorder.is_recording:
                     try:
-                        raw_frame = env.raw_env.render(mode="rgb_array")
+                        raw_frame = env.raw_env.render()
                         if raw_frame is not None:
                             frame_metadata = {
                                 "step": global_step + _step,
@@ -465,7 +465,6 @@ def train(cfg: Config, args: argparse.Namespace | None = None) -> None:
                     clip_epsilon=cfg.agent.clip_epsilon,
                     value_coef=cfg.agent.value_coef,
                     entropy_coef=cfg.agent.entropy_coef,
-                    max_grad_norm=cfg.agent.max_grad_norm,
                 )
 
                 pg_losses.append(losses["policy_loss"])
@@ -517,8 +516,8 @@ def train(cfg: Config, args: argparse.Namespace | None = None) -> None:
             log_data["reward/bonus_max"] = float(np.max(_bonus_samples))
         if episode_returns:
             log_data["episode/return_mean"] = float(np.mean(episode_returns))
-            log_data["episode/return_max"] = float(np.max(episode_returns[-100:]))
-            log_data["episode/return_min"] = float(np.min(episode_returns[-100:]))
+            log_data["episode/return_max"] = float(np.max(list(episode_returns)))
+            log_data["episode/return_min"] = float(np.min(list(episode_returns)))
             log_data["episode/length_mean"] = float(
                 np.mean(episode_lengths[-100:]) if episode_lengths else 0.0
             )
@@ -565,7 +564,7 @@ def train(cfg: Config, args: argparse.Namespace | None = None) -> None:
             # Only broadcast frames/PNG every N iterations to save CPU
             if iter_counter % dashboard_update_interval == 0:
                 with contextlib.suppress(Exception):
-                    raw_frame = envs[0].raw_env.render(mode="rgb_array")
+                    raw_frame = envs[0].raw_env.render()
                     if raw_frame is not None:
                         png_bytes = frame_to_png(raw_frame)
                         dashboard.broadcast_frame(png_bytes)
@@ -632,7 +631,7 @@ def train(cfg: Config, args: argparse.Namespace | None = None) -> None:
         dashboard.broadcast_event("train_complete", msg=msg)
         dashboard.stop()
 
-    _write_final_summary(writer, log_data, global_step)
+    _write_final_summary(writer, global_step)
 
 
 # ===================================================================
@@ -659,35 +658,34 @@ def _log_recorder_summary(summary: dict) -> None:
 # ===================================================================
 
 
-def _log_scalars(writer: keras.callbacks.TensorBoard, data: dict[str, float], step: int) -> None:
-    """Write scalar values using the Keras TensorBoard callback's writer."""
+def _create_tb_writer(log_dir: str):
+    """Create a TensorBoard writer (backend-agnostic, standalone tensorboard pkg)."""
     try:
-        import tensorflow as tf
+        from tensorboard.summary import Writer  # ty: ignore[unresolved-import]
 
-        tf_writer = getattr(writer, '_train_writer', None) or getattr(writer, '_val_writer', None)
-        if tf_writer is None:
-            return
-        with tf_writer.as_default():
-            for key, value in data.items():
-                tf.summary.scalar(key, value, step=step)
+        return Writer(log_dir)
+    except Exception:
+        return None
+
+
+def _log_scalars(writer, data: dict[str, float], step: int) -> None:
+    """Write scalar values to TensorBoard."""
+    if writer is None:
+        return
+    try:
+        for key, value in data.items():
+            writer.add_scalar(key, value, step=step)
     except Exception:
         pass  # non-critical
 
 
-def _write_final_summary(
-    writer: keras.callbacks.TensorBoard, data: dict[str, float], step: int
-) -> None:
+def _write_final_summary(writer, step: int) -> None:
     """Write a final 'done' marker to TensorBoard."""
-    try:
-        import tensorflow as tf
-
-        tf_writer = getattr(writer, '_train_writer', None) or getattr(writer, '_val_writer', None)
-        if tf_writer is None:
-            return
-        with tf_writer.as_default():
-            tf.summary.text("training/status", "complete", step=step)
-    except Exception:
-        pass
+    if writer is None:
+        return
+    from contextlib import suppress
+    with suppress(Exception):
+        writer.add_text("training/status", "complete", step=step)
 
 
 # ===================================================================

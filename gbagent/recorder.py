@@ -196,6 +196,7 @@ class Recorder:
                 return {"status": "not_recording"}
 
             self._active = False
+            assert self._session_dir is not None  # set by start()
             total_frames = self._frame_count
             end_time = datetime.now().isoformat()
             duration_s = total_frames / self._fps if self._fps > 0 else 0.0
@@ -283,6 +284,7 @@ class Recorder:
             if not self._active:
                 return
 
+            assert self._frames_dir is not None  # set by start()
             self._frame_count += 1
             frame_idx = self._frame_count
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from gbagent.action import (
     _DPAD_ONLY,
@@ -44,7 +43,6 @@ def test_softmax_numerical_stability():
 
 
 class TestSampleActions:
-    @pytest.mark.keras
     def test_sample_training(self):
         dpad_logits = np.array([[10.0, 0.0, 0.0, 0.0, 0.0]], dtype=np.float64)
         btn_logits = np.array([[0.0, 10.0, 0.0, 0.0, 0.0, 0.0]], dtype=np.float64)
@@ -63,7 +61,6 @@ class TestSampleActions:
         assert dpad[0] == 1  # UP
         assert btn[0] == 2  # A
 
-    @pytest.mark.keras
     def test_sample_batch(self):
         dpad_logits = np.random.randn(4, 5).astype(np.float64)
         btn_logits = np.random.randn(4, 6).astype(np.float64)
@@ -132,9 +129,9 @@ class TestCombineActions:
         assert result[0] == _LOOKUP_GBA[(0, 7)]  # R
 
 
-@pytest.mark.keras
 def test_compute_log_probs():
-    pytest.importorskip("tensorflow")
+    from keras import ops
+
     from gbagent.action import compute_log_probs
 
     dpad_logits = np.array([[10.0, 0.0, 0.0, 0.0, 0.0]], dtype=np.float32)
@@ -142,27 +139,23 @@ def test_compute_log_probs():
     dpad_actions = np.array([0], dtype=np.int32)
     btn_actions = np.array([1], dtype=np.int32)
 
-    import tensorflow as tf
-
     lp = compute_log_probs(
-        tf.constant(dpad_logits),
-        tf.constant(btn_logits),
-        tf.constant(dpad_actions),
-        tf.constant(btn_actions),
+        ops.convert_to_tensor(dpad_logits),
+        ops.convert_to_tensor(btn_logits),
+        ops.convert_to_tensor(dpad_actions),
+        ops.convert_to_tensor(btn_actions),
     )
     assert lp.shape == (1,)
-    assert lp.numpy()[0] < 0.0  # log prob should be negative
+    assert float(lp[0]) < 0.0  # log prob should be negative
 
 
-@pytest.mark.keras
 def test_policy_entropy():
-    pytest.importorskip("tensorflow")
-    import tensorflow as tf
+    from keras import ops
 
     from gbagent.action import policy_entropy
 
-    dpad_logits = tf.constant([[1.0, 2.0, 3.0, 4.0, 5.0]])
-    btn_logits = tf.constant([[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]])
+    dpad_logits = ops.convert_to_tensor([[1.0, 2.0, 3.0, 4.0, 5.0]])
+    btn_logits = ops.convert_to_tensor([[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]])
     ent = policy_entropy(dpad_logits, btn_logits)
     assert ent.shape == (1,)
-    assert ent.numpy()[0] > 0.0  # entropy should be positive
+    assert float(ent[0]) > 0.0  # entropy should be positive

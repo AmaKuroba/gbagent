@@ -149,6 +149,7 @@ class InferenceEngine:
         ``episode_length``, ``duration_s``, ``fps``.
         """
         obs, _ = env.reset()
+        step = 0
         total_reward = 0.0
         values: list[float] = []
         start_time = time.time()
@@ -202,6 +203,7 @@ class InferenceEngine:
     # ------------------------------------------------------------------
 
     def _predict_keras(self, obs: np.ndarray):
+        assert self._model is not None  # backend == "keras"
         dpad_logits, btn_logits, value, _ = self._model(obs, training=False)
         return (
             dpad_logits.numpy(),
@@ -210,6 +212,9 @@ class InferenceEngine:
         )
 
     def _predict_tflite(self, obs: np.ndarray):
+        assert self._interpreter is not None  # backend == "tflite"
+        assert self._input_details is not None
+        assert self._output_details is not None
         interp = self._interpreter
         input_dtype = self._input_details[0]["dtype"]
 
@@ -249,9 +254,11 @@ class InferenceEngine:
         if value_out is not None and value_out.dtype == np.uint8:
             value_out = value_out.astype(np.float32)
 
+        assert dpad_out is not None and btn_out is not None and value_out is not None
         return dpad_out, btn_out, value_out
 
     def _predict_onnx(self, obs: np.ndarray):
+        assert self._session is not None  # backend == "onnx"
         input_name = self._session.get_inputs()[0].name
         output_names = [o.name for o in self._session.get_outputs()]
         outputs = self._session.run(output_names, {input_name: obs.astype(np.float32)})
@@ -296,7 +303,7 @@ class InferenceEngine:
     def _load_keras(self, path: Path) -> None:
         import tensorflow as tf
 
-        self._model = tf.keras.models.load_model(str(path))
+        self._model = tf.keras.models.load_model(str(path))  # ty: ignore[unresolved-attribute]
 
         # Keras 3 models may not expose input_shape until explicitly built;
         # handle gracefully.
@@ -332,7 +339,7 @@ class InferenceEngine:
 
     def _load_onnx(self, path: Path) -> None:
         try:
-            import onnxruntime as ort
+            import onnxruntime as ort  # ty: ignore[unresolved-import]
         except ImportError as err:
             raise ImportError(
                 "onnxruntime is required for ONNX inference. Install with:\n"
@@ -367,6 +374,7 @@ class InferenceEngine:
             except (AttributeError, NotImplementedError):
                 info["input_shape"] = "(N, 84, 84, 4)"
         if self._input_details:
+            assert self._output_details is not None
             info["tflite_inputs"] = [
                 {"shape": d["shape"], "dtype": str(d["dtype"])}
                 for d in self._input_details

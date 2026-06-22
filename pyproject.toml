@@ -16,10 +16,7 @@ dependencies = [
     "numpy>=1.26",
     "opencv-python>=4.9",
     "PyYAML>=6.0",
-    "tensorflow>=2.16",
-    "nvidia-cuda-runtime-cu12",
-    "nvidia-cublas-cu12",
-    "nvidia-cudnn-cu12",
+    "jax>=0.4",
     "keras>=3.3",
     "aiohttp>=3.9",
 ]
@@ -59,9 +56,6 @@ where = ["."]
 include = ["gbagent*"]
 
 [tool.pytest.ini_options]
-markers = [
-    "keras: marks tests that require a keras/tensorflow backend (deselect with '-k \"not keras\"')",
-]
 
 [tool.uv.sources]
 stable-retro = { git = "https://github.com/Farama-Foundation/stable-retro.git" }

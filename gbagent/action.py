@@ -17,6 +17,8 @@ All functions are NumPy-based and designed for eager-mode rollout loops.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 from keras import ops
 
@@ -159,8 +161,8 @@ def _log_softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
 
 
 def sample_actions(
-    dpad_logits: np.ndarray,  # (B, 5)
-    btn_logits: np.ndarray,   # (B, N)  N=6 (GB) or 8 (GBA)
+    dpad_logits: Any,  # (B, 5)
+    btn_logits: Any,   # (B, N)  N=6 (GB) or 8 (GBA)
     training: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Sample discrete actions from categorical (dpad, btn) logits.
