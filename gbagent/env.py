@@ -200,7 +200,7 @@ class GBAGEnv(gym.Env):
         if isinstance(state, str) and state not in ("__default__", "__none__"):
             if retro_data.get_file_path(game, f"{state}.state", inttype) is None:
                 print(f"  ⚠ State '{state}' not found for '{game}', using power-on default")
-                state_to_use = retro.State.DEFAULT
+                state_to_use = retro.State.NONE
                 auto_create_state = True
 
         # Create the underlying Retro environment
