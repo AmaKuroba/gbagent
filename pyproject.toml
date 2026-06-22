@@ -57,7 +57,5 @@ include = ["gbagent*"]
 
 [tool.pytest.ini_options]
 
-[tool.uv.sources]
-stable-retro = { git = "https://github.com/Farama-Foundation/stable-retro.git" }
 
 
