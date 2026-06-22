@@ -5,12 +5,17 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any, ClassVar
 
 import cv2
 import gymnasium as gym
 import numpy as np
 import retro
+import stable_retro.data as retro_data
+
+# Track already-registered custom ROM directories (process-wide)
+_registered_rom_dirs: set[str] = set()
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -164,6 +169,7 @@ class GBAGEnv(gym.Env):
         frame_stack: int = FRAME_STACK,
         render_mode: str | None = None,
         gba_mode: bool = False,
+        rom_dir: str | None = "roms",
         **scenario_kwargs: Any,
     ) -> None:
         super().__init__()
@@ -173,6 +179,14 @@ class GBAGEnv(gym.Env):
         self._frame_stack = frame_stack
         self._stack: deque[np.ndarray] = deque(maxlen=frame_stack)
         self._render_mode = render_mode
+
+        # Register custom ROM directory (once per unique path)
+        if rom_dir is not None:
+            resolved = Path(rom_dir).resolve()
+            if resolved.is_dir() and str(resolved) not in _registered_rom_dirs:
+                _registered_rom_dirs.add(str(resolved))
+                retro_data.add_custom_integration(str(resolved))
+                print(f"  ROM dir: {resolved}")
 
         # Create the underlying Retro environment
         self._env = retro.make(

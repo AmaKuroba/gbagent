@@ -51,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--state", type=str, default=None, help="Start state")
     parser.add_argument("--frame-skip", type=int, default=None)
     parser.add_argument("--frame-stack", type=int, default=None)
+    parser.add_argument("--rom-dir", type=str, default=None, help="Custom ROM directory")
     # Training overrides
     parser.add_argument("--total-timesteps", type=int, default=None, help="Total training steps")
     parser.add_argument("--num-envs", type=int, default=None)
@@ -104,6 +105,7 @@ def override_config(cfg: Config, args: argparse.Namespace) -> None:
         ("env", "state"),
         ("env", "frame_skip"),
         ("env", "frame_stack"),
+        ("env", "rom_dir"),
         ("train", "total_timesteps"),
         ("train", "num_envs"),
         ("train", "seed"),
@@ -193,6 +195,7 @@ def train(cfg: Config, args: argparse.Namespace | None = None) -> None:
             frame_skip=cfg.env.frame_skip,
             frame_stack=cfg.env.frame_stack,
             gba_mode=gba_mode,
+            rom_dir=cfg.env.rom_dir,
         )
         env.reset(seed=cfg.train.seed + rank)
         return env

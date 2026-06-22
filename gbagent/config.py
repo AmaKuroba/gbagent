@@ -24,6 +24,7 @@ class EnvConfig:
     frame_stack: int = 4
     render_mode: str | None = None
     gba_mode: bool = False  # True → add L/R shoulder buttons
+    rom_dir: str = "roms"   # custom ROM directory (relative to CWD)
 
 
 @dataclass
