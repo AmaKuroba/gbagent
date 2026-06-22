@@ -164,7 +164,7 @@ class GBAGEnv(gym.Env):
     def __init__(
         self,
         game: str = "PokemonRed-GB",
-        state: str = retro.State.DEFAULT,
+        state: str = "Level1",
         frame_skip: int = FRAME_SKIP,
         frame_stack: int = FRAME_STACK,
         render_mode: str | None = None,
