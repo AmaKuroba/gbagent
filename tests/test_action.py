@@ -44,6 +44,7 @@ def test_softmax_numerical_stability():
 
 
 class TestSampleActions:
+    @pytest.mark.keras
     def test_sample_training(self):
         dpad_logits = np.array([[10.0, 0.0, 0.0, 0.0, 0.0]], dtype=np.float64)
         btn_logits = np.array([[0.0, 10.0, 0.0, 0.0, 0.0, 0.0]], dtype=np.float64)
@@ -62,6 +63,7 @@ class TestSampleActions:
         assert dpad[0] == 1  # UP
         assert btn[0] == 2  # A
 
+    @pytest.mark.keras
     def test_sample_batch(self):
         dpad_logits = np.random.randn(4, 5).astype(np.float64)
         btn_logits = np.random.randn(4, 6).astype(np.float64)
